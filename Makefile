@@ -95,11 +95,6 @@ export LIBPATHS	:= -L$(LIBOGC_LIB) $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 export OUTPUT	:=	$(CURDIR)/$(TARGET)
 .PHONY: $(BUILD) clean
 
-#debug flag thing
-debug: CFLAGS += -DDEBUG
-debug: CXXFLAGS += -DDEBUG
-debug: $(BUILD)
-
 #---------------------------------------------------------------------------------
 $(BUILD):
 	@[ -d $@ ] || mkdir -p $@
