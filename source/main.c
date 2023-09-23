@@ -9,7 +9,7 @@
 #include <wiiuse/wpad.h>
 #include <ogc/isfs.h>
 #include <ogc/es.h>
-#include <debug.h>
+#include <ogc/machine/processor.h>
 #include <network.h>
 #include <libpatcher/libpatcher.h>
 
@@ -23,6 +23,13 @@
 const char header[] = "Photo Channel 1.1 installer v" VERSION ", by thepikachugamer\n\n";
 static fstats file_stats ATTRIBUTE_ALIGN(32);
 bool offline_mode = true;
+
+#define syscall(id)				(0xE6000010 | (id << 5))
+#define SC_SETUID				0x2b
+#define SC_INVALIDATEDCACHE		0x3f
+#define SC_FLUSHDCACHE			0x40
+
+
 
 void* NUS_Download(const uint64_t tid, char* obj, unsigned int* size, int* ec) {
 	char url[100];
@@ -167,7 +174,54 @@ signed_blob* fetch_tik(const uint64_t tid, unsigned int* size, int* ret) {
 	}
 }
 
+void hexdump(void* ptr, unsigned int cnt) {
+	printf("%p ", ptr);
+	for(unsigned int i = 0; i < cnt; i++) {
+		printf( "%02x ", ((unsigned char*)ptr)[i] );
+		if(! ((i+1) % 16) && i != cnt)
+			printf("\n%p ", ((unsigned char*)ptr) + i + 1);
+	}
+
+}
+
 int main() {
+	uint32_t armCode[] = {
+	/* 0x00 */ 0xEA000000, // b       0x8
+	/* 0x04 */ 0x00000000, // MESSAGE_VALUE
+	// Set PPC UID to root
+	/* 0x08 */ 0xE3A0000F, // mov     r0, #15
+	/* 0x0C */ 0xE3A01000, // mov     r1, #0
+	/* 0x10 */ syscall(SC_SETUID),
+	// Send response to PPC
+	/* 0x14 */ 0xE24F0018, // adr     r0, MESSAGE_VALUE
+	/* 0x18 */ 0xE3A01001, // mov     r1, #1
+	/* 0x1C */ 0xE5801000, // str     r1, [r0]
+	// Flush the response to main memory
+	/* 0x20 */ 0xE3A01004, // mov     r1, #4
+	/* 0x24 */ syscall(SC_FLUSHDCACHE),
+	// Wait for response back from PPC
+	// loop_start:
+	/* 0x28 */ 0xE24F002C, // adr     r0, MESSAGE_VALUE
+	/* 0x2C */ 0xE5902000, // ldr     r2, [r0]
+	/* 0x30 */ 0xE3520002, // cmp     r2, #2
+	/* 0x34 */ 0x0A000001, // beq     loop_break
+	/* 0x38 */ syscall(SC_INVALIDATEDCACHE),
+	/* 0x3C */ 0xEAFFFFF9, // b       loop_start
+	// loop_break:
+	// Reset PPC UID back to 15
+	/* 0x40 */ 0xE3A0000F, // mov     r0, #15
+	/* 0x44 */ 0xE3A0100F, // mov     r1, #15
+	/* 0x48 */ syscall(SC_SETUID),
+	// Send response to PPC
+	/* 0x4C */ 0xE24F0050, // adr     r0, MESSAGE_VALUE
+	/* 0x50 */ 0xE3A01003, // mov     r1, #3
+	/* 0x54 */ 0xE5801000, // str     r1, [r0]
+	// Flush the response to main memory
+	/* 0x58 */ 0xE3A01004, // mov     r1, #4
+	/* 0x5C */ syscall(SC_FLUSHDCACHE),
+	/* 0x60 */ 0xE12FFF1E, // bx      lr
+};
+
 	const uint64_t
 		tid = 0x0001000248415941LL,
 		tid_new = 0x0001000248414141LL,
@@ -180,7 +234,8 @@ int main() {
 		tmd_size = 0,
 		tik_size = 0,
 		cnt = 0,
-		_cnt = 0;
+		_cnt = 0,
+		keynum = 0;
 
 	signed_blob
 		*s_certs = NULL,
@@ -217,7 +272,7 @@ int main() {
 		else
 			printf("This console owns the Photo Channel 1.1 stub.\n" "Maybe you're looking for the Wii Shop Channel?\n");
 
-		return quit(0);
+//		return quit(0);
 	}
 
 	if (!cnt) {
@@ -267,47 +322,147 @@ int main() {
 
 	tik* p_tik = SIGNATURE_PAYLOAD(s_tik);
 
+	if(!check_dolphin()) {
+		printf("\x1b[43m> Identifying... \x1b[40m");
+
+		ret = ES_Identify(s_certs, certs_size, s_tmd, tmd_size, s_tik, STD_SIGNED_TIK_SIZE, &keynum);
+		if(ret < 0) {
+			printf("failed! (%d)\n", ret);
+			return quit(ret);
+		}
+		printf("OK! keynum = %u\n", keynum);
+
+		printf("\x1b[43m> Escalating priveleges... \x1b[40m");
+
+		int shaFd = IOS_Open("/dev/sha", 0);
+		if(!shaFd) {
+			printf("failed! (open, %d)\n", ret);
+			return quit(ret);
+		}
+
+		int shaHeap = iosCreateHeap(0x50);
+		if(shaHeap < 0) {
+			printf("failed! (iosCreateHeap() -> %d)\n", ret);
+			return quit(ret);
+		}
+
+		uint32_t* MEM1 = (void*) SYS_BASE_CACHED;
+		*MEM1++ = 0x4903468D; // ldr r1, =0x10100000; mov sp, r1;
+		*MEM1++ = 0x49034788; // ldr r1, =entrypoint; blx r1;
+		// Overwrite reserved handler to loop infinitely
+		*MEM1++ = 0x49036209; // ldr r1, =0xFFFF0014; str r1, [r1, #0x20];
+		*MEM1++ = 0x47080000; // bx r1
+		*MEM1++ = 0x10100000; // temporary stack
+		*MEM1++ = MEM_VIRTUAL_TO_PHYSICAL(armCode);
+		*MEM1++ = 0xFFFF0014; // reserved handler
+
+		ioctlv* ACE = iosAlloc(shaHeap, sizeof(ioctlv) * 4);
+		if (!ACE) {
+			printf("heap too small?\n");
+			return quit(-ENOMEM);
+		}
+
+		ACE[0].data = NULL;
+		ACE[0].len  = 0;
+
+		ACE[1].data = (void*) 0xFFFE0028;
+		ACE[1].len  = 0;
+
+		ACE[2].data = (void*) SYS_BASE_CACHED;
+		ACE[2].len  = 0x40;
+
+
+		ret = IOS_Ioctlv(shaFd, 0, 1, 2, ACE);
+		if(ret < 0) {
+			printf("failed! (ioctlv -> %d)\n", ret);
+			return ret;
+		}
+
+		int msg = 0;
+		while(msg != 1) {
+			msg = read32((uint32_t)(armCode + 1));
+			putc(0x30 + msg, stdout);
+		}
+		fflush(stdout);
+		printf("\nnow bear with me ES...\n");
+
+	}
+
 	printf("> Changing Title ID... ");
 
+	/*
 	aeskey
 		keyout	ATTRIBUTE_ALIGN(0x20),
 		keyin	ATTRIBUTE_ALIGN(0x20),
 		iv		ATTRIBUTE_ALIGN(0x20),
 		tkey	ATTRIBUTE_ALIGN(0x20); // probably don't need this
+	*/
+	int heapOfKeys = iosCreateHeap(0x20 * 16); // ?
+	if (heapOfKeys < 0) {
+		printf("failed? (%d)\n", ret);
+		return quit(ret);
+	}
 
+	aeskey* keychain = iosAlloc(heapOfKeys, sizeof(aeskey) * 8);
+	if(!keychain) {
+		printf("heap too small?\n");
+		return quit(-ENOMEM);
+	}
+	printf("\x1b[44m keychain @ %p~%p \x1b[40m\n", keychain, keychain + 8);
+
+	/*
 	memcpy(keyin, p_tik->cipher_title_key, sizeof(aeskey));
 	memset(iv, 0, sizeof(aeskey));
 	memcpy(iv, &p_tik->titleid, sizeof(p_tik->titleid));
 	memset(keyout, 0, sizeof(aeskey));
+	*/
+	memset(keychain, 0, sizeof(aeskey) * 8);
+	memcpy(keychain[0], p_tik->cipher_title_key, sizeof(aeskey));
+	memcpy(keychain[2], &p_tik->titleid, sizeof(uint64_t));
 
-	ret = ES_Decrypt(ES_KEY_COMMON, iv, keyin, sizeof(aeskey), keyout);
+	hexdump(keychain, sizeof(aeskey) * 8);
+
+	ret = ES_Decrypt(ES_KEY_COMMON, keychain[2], keychain[0], sizeof(aeskey), keychain[4]);
+	printf("\n\x1b[44m ES_Decrypt(%d, %p, %p, %u, %p) -> %d \x1b[40m\n",
+		   ES_KEY_COMMON, keychain[2], keychain[0], sizeof(aeskey), keychain[4], ret);
 
 	if (ret < 0) {
 		printf("failed! (decrypt, %d)\n", ret);
 		return quit(ret);
 	}
-	memcpy(tkey, keyout, sizeof(aeskey));
-	AES_init_ctx(&_aes_ctx, tkey);
+	memcpy(keychain[1], keychain[4], sizeof(aeskey));
+	AES_init_ctx(&_aes_ctx, keychain[1]);
 
 	p_tik->titleid = tid_new;
-	memset(iv, 0, sizeof(iv));
-	memcpy(iv, &p_tik->titleid, sizeof(p_tik->titleid));
+	memset(keychain[2], 0, sizeof(aeskey));
+	memcpy(keychain[2], &p_tik->titleid, sizeof(uint64_t));
 
-	ret = ES_Encrypt(ES_KEY_COMMON, iv, keyout, sizeof(aeskey), keyin);
+	ret = ES_Encrypt(ES_KEY_COMMON, keychain[2], keychain[4], sizeof(aeskey), keychain[0]);
 	if (ret < 0) {
 		printf("failed! (encrypt, %d)\n", ret);
 		return quit(ret);
 	}
-	memcpy(p_tik->cipher_title_key, keyin, sizeof(aeskey));
+	memcpy(p_tik->cipher_title_key, keychain[0], sizeof(aeskey));
 
 	p_tmd->title_id = tid_new;
 	printf("OK!\n");
+
+	if(!check_dolphin()) {
+		printf("Thank you /dev/sha ...\n");
+		write32((uint32_t)(armCode + 1), 2);
+		while(read32((uint32_t)(armCode + 1)) != 3);
+	}
+
+	return quit(0);
 
 	if(check_vwii()) {
 		printf("* This seems to be a vWii, setting IOS to 58.\n");
 		p_tmd->sys_version = 0x000000010000003ALL;
 	}
 
+	/*
+	 * no silly strcmp anymore. iosc just says ok
+	 * ily noahpistilli
 	printf("> Faking signatures... ");
 
 	memset(SIGNATURE_SIG(s_tik), 0, SIGNATURE_SIZE(s_tik) - 4);
@@ -331,6 +486,7 @@ int main() {
 		return quit(~1);
 	}
 	printf("OK!\n");
+	*/
 
 	printf("> Installing ticket... ");
 	ret = ES_AddTicket(s_tik, STD_SIGNED_TIK_SIZE, s_certs, certs_size, NULL, 0);
