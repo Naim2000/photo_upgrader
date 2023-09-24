@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <wiiuse/wpad.h>
 #include <gccore.h>
-#include <ogc/conf.h>
+#include <ogc/es.h>
 #include <network.h>
 #include <math.h>
 
@@ -46,17 +46,9 @@ bool check_vwii(void) {
     return vwii;
 }
 
-int quit(int ret) {
-	net_deinit();
-	ISFS_Deinitialize();
-	printf("\nPress HOME/START to return to loader.\n");
-	while(!input_scan(input_start)) VIDEO_WaitVSync();
-	WPAD_Shutdown();
-	return ret;
-}
 
-unsigned short input_scan(unsigned short value) {
-	unsigned short input = 0x00;
+uint16_t input_scan(uint16_t value) {
+	uint16_t input = 0x00;
 
 	WPAD_ScanPads();
 	 PAD_ScanPads();
@@ -81,11 +73,33 @@ unsigned short input_scan(unsigned short value) {
 	if (wii_down & WPAD_BUTTON_2		|| gcn_down & PAD_BUTTON_Y)
 		input |= input_y;
 
-	if (wii_down & WPAD_BUTTON_HOME		|| gcn_down & PAD_BUTTON_START || SYS_ResetButtonDown())
+	if (wii_down & WPAD_BUTTON_PLUS		|| gcn_down & PAD_BUTTON_START)
 		input |= input_start;
-	if (wii_down & WPAD_BUTTON_PLUS		|| gcn_down & PAD_TRIGGER_Z)
+	if (wii_down & WPAD_BUTTON_MINUS	|| gcn_down & PAD_TRIGGER_Z)
 		input |= input_select;
+	if (wii_down & WPAD_BUTTON_HOME		|| gcn_down & PAD_BUTTON_START || SYS_ResetButtonDown())
+		input |= input_home;
 
-	return value ? input & value : input;
+	return value ?
+		input & value :
+		input;
 }
 
+int quit(int ret) {
+	net_deinit();
+	ISFS_Deinitialize();
+	printf("\nPress HOME/START to return to loader.\n");
+	while(!input_scan(input_home)) VIDEO_WaitVSync();
+	WPAD_Shutdown();
+	return ret;
+}
+
+bool confirmation(void) {
+	printf("\nPress +/START to continue." "\n" "Press any other button to cancel.\n");
+	unsigned int input = input_scan(0);
+	while(!input) {
+		input = input_scan(0);
+		VIDEO_WaitVSync();
+	}
+	return (input & input_start) > 0;
+}
