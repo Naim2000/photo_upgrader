@@ -11,8 +11,8 @@
 #include <ogc/es.h>
 #include <debug.h>
 #include <network.h>
-#include <runtimeiospatch/runtimeiospatch.h>
 
+#include "runtimeiospatch.h"
 #include "tools.h"
 #include "aes.h"
 #include "http.h"
