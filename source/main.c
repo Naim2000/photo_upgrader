@@ -11,13 +11,14 @@
 #include <ogc/es.h>
 #include <debug.h>
 #include <network.h>
-#include <libpatcher/libpatcher.h>
+#include <runtimeiospatch/runtimeiospatch.h>
 
 #include "tools.h"
 #include "aes.h"
 #include "http.h"
 
 #define ALIGN(a,b) ((((a)+(b)-1)/(b))*(b))
+#define MAXIMUM(num, max) ( (num > max) ? max : num )
 
 const char header[] = "Photo Channel 1.1 installer v" VERSION ", by thepikachugamer\n\n";
 
@@ -168,6 +169,8 @@ signed_blob* fetch_tik(const uint64_t tid, unsigned int* size, int* ret) {
 	}
 }
 
+
+
 int main() {
 	const uint64_t
 		tid = 0x0001000248415941LL,
@@ -188,21 +191,23 @@ int main() {
 		*s_tmd = NULL,
 		*s_tik = NULL;
 
-	struct AES_ctx AESctx_title = {}, AESctx_titlekey = {};
+	struct AES_ctx AESctx_titlekey = {}, AESctx_title = {};
 
 	init_video(2, 0);
 	printf(header);
 
 	printf("Applying IOS patches... ");
-	if (!apply_patches()) {
-		printf("Failed! Is your Homebrew Channel updated?\n"
+	ret = IosPatch_RUNTIME(true, false, true, false);
+	if (ret < 0) {
+		printf("Failed! (%d)" "\n"
+			"Is your Homebrew Channel updated?" "\n"
 			"Is <ahb_access/> in meta.xml?" "\n\n"
 
-			"Exiting in 5s...");
+			"Exiting in 5s...", ret);
 		sleep(5);
 		return 0x0D800064;
 	}
-	printf("OK!\n\n");
+	printf("OK! (patch count = %d)\n\n", ret);
 
 	WPAD_Init();
 	PAD_Init();
@@ -213,16 +218,6 @@ int main() {
 		printf("This console owns the Photo Channel 1.1 stub.\n" "Retrieve it at the Wii Shop Channel.\n");
 		return quit(0);
 	}
-
-	printf(
-		"This application will install the hidden Photo Channel 1.1" "\n"
-		"title directly over Photo Channel 1.0." "\n\n"
-
-		"Is this OK?" "\n"
-	);
-	sleep(3);
-
-	if(!confirmation()) return quit(2976579765);
 
 	ES_GetTitleContentsCount(tid, &cnt);
 	if (!cnt) {
@@ -253,9 +248,18 @@ int main() {
 	if(check_dolphin())
 		printf("\x1b[41m This is Dolphin Emulator, expect -2011. \x1b[40m\n");
 
-	printf("> Reading certs... ");
-	s_certs = FS_Read("/sys/cert.sys", &certs_size, &ret);
+	printf(
+		"This application will install the hidden Photo Channel 1.1" "\n"
+		"title directly over Photo Channel 1.0." "\n\n"
 
+		"Is this OK?" "\n"
+	);
+	sleep(3);
+
+	if(!confirmation()) return quit(2976579765);
+
+	printf("\n> Reading certs... ");
+	s_certs = FS_Read("/sys/cert.sys", &certs_size, &ret);
 	if (ret < 0) {
 		printf("failed! (%d)\n", ret);
 		return quit(ret);
@@ -373,15 +377,7 @@ int main() {
 		return quit(ret);
 	}
 	printf("OK!\n");
-/*
-	printf("> Installing TMD... ");
-	ret = ES_AddTitleTMD(s_tmd, SIGNED_TMD_SIZE(s_tmd));
-	if (ret < 0) {
-		printf("failed! (%d)\n", ret);
-		return quit(ret);
-	}
-	printf("OK!\n");
-*/
+
 	printf("> Starting title installation... ");
 	ret = ES_AddTitleStart(s_tmd, SIGNED_TMD_SIZE(s_tmd), s_certs, certs_size, NULL, 0);
 	if (ret < 0) {
@@ -392,29 +388,25 @@ int main() {
 
 	printf("OK!\n");
 
-	for(uint16_t i = 0; i < p_tmd->num_contents; i++) {
-		tmd_content* content = &p_tmd->contents[i];
-		unsigned int
-			cid = content->cid,
-			csize = content->size,
-			_csize = 0,
-			enc_buf_sz = 1024;
-
-		unsigned char
-			*buffer = NULL,
-			enc_buf[1024] ATTRIBUTE_ALIGN(0x20) = {};
-
-		int cfd;
+	for(unsigned int i = 0; i < p_tmd->num_contents; i++) {
+		tmd_content* content = p_tmd->contents + i;
+		unsigned int cid = content->cid, csize = content->size, align_csize = ALIGN(content->size, 0x20), _csize = 0;
+		unsigned char* buffer = NULL;
+		int cfd = 0;
 
 		if (offline_mode) {
+			if(content->type == 0x8001) continue; // Shared content, user already has it.
 			printf(">> Installing content #%02d... ", i);
-			if(content->type == 0x8001) { // // content->type & ~1 (probably bad), content->type != 1
-				printf("Skipped. (This is a shared content.)\n\n");
-				continue;
+
+			ret = ES_AddContentStart(p_tmd->title_id, cid);
+			if(ret < 0) {
+				printf("failed! (start, %d)\n", ret);
+				ES_AddTitleCancel();
+				return quit(ret);
 			}
+			cfd = ret;
 
 			char filepath[128];
-			unsigned int _csize = 0, align_csize = ALIGN(csize, 32);
 			sprintf(filepath, "/title/%08x/%08x/content/%08x.app", tid_hi(tid), tid_lo(tid), cid);
 			buffer = FS_Read(filepath, &_csize, &ret);
 			if(ret < 0) {
@@ -423,29 +415,23 @@ int main() {
 				return quit(ret);
 			}
 
-			ret = ES_AddContentStart(p_tmd->title_id, cid);
-			if(ret < 0) {
-				printf("failed! (ES_AddContentStart -> %d)\n", ret);
-				ES_AddTitleCancel();
-				return quit(ret);
-			}
-			cfd = ret;
-
-			aeskey encrypt_iv ATTRIBUTE_ALIGN(32) = {};
+			aeskey encrypt_iv = {};
 			encrypt_iv[1] = i & 0xFF;
 			AES_ctx_set_iv(&AESctx_title, encrypt_iv);
 
 			putc('\n', stdout);
 
-			unsigned int j = 0;
-			while( j < csize ) {
-				unsigned int z = ALIGN(
-					(( csize - j > enc_buf_sz ) ? enc_buf_sz : ( csize - j )),
-					32);
+			unsigned char enc_buf[1024] ATTRIBUTE_ALIGN(0x20) = {};
 
-				memcpy(enc_buf, buffer + j, z);
+			for (unsigned int total = 0, z = 0; total < csize; total += z) {
+				z = MAXIMUM(align_csize - total, sizeof(enc_buf));
+				memcpy(enc_buf, buffer + total, z);
+
 				AES_CBC_encrypt_buffer(&AESctx_title, enc_buf, z);
-				printf("\r%u/%u bytes / %.2f%% ... ", j + z, csize, ((double)(j + z) / align_csize) * 100);
+				printf("\r%u/%u bytes / %.2f%% ... ",
+						total + z, align_csize,
+						( (total + z) / (double)align_csize ) * 100);
+
 				ret = ES_AddContentData(cfd, enc_buf, z);
 				if (ret < 0) {
 					printf("error! (%d)\n", ret);
@@ -453,33 +439,30 @@ int main() {
 					ES_AddTitleCancel();
 					return quit(ret);
 				}
-				j += z;
 			}
 		} else {
-			printf(">> Downloading content id %08x... ", cid);
+			printf(">> Downloading content %08x... ", cid);
 			char cidstr[9]; // muh \x00
-			unsigned int __csize = 0; _csize = ALIGN(csize, 0x20);
 			sprintf(cidstr, "%08x", cid);
 
-			buffer = NUS_Download(tid, cidstr, &__csize, &ret);
+			buffer = NUS_Download(tid, cidstr, &_csize, &ret);
 			if(ret < 0) {
 				printf("failed! (%d)\n", ret);
 				ES_AddTitleFinish();
 				return quit(ret);
 			}
-
-			printf("OK! (size = %u)\n", __csize);
+			printf("OK! (size = %u)\n", _csize);
 
 			printf(">> Installing... ");
 			ret = ES_AddContentStart(p_tmd->title_id, cid);
 			if(ret < 0) {
-				printf("failed! (%d)\n", ret);
+				printf("failed! (start, %d)\n", ret);
 				ES_AddTitleCancel();
 				return quit(ret);
 			}
 			cfd = ret;
 
-			ret = ES_AddContentData(cfd, buffer, _csize);
+			ret = ES_AddContentData(cfd, buffer, align_csize);
 			if (ret < 0) {
 				printf("failed! (%d)\n", ret);
 				ES_AddContentFinish(cfd);
