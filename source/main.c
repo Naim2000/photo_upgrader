@@ -1,4 +1,4 @@
-#define VERSION "1.0.0"
+#define VERSION "0.9.0"
 
 #include <stdio.h>
 #include <stdlib.h>
