@@ -103,13 +103,19 @@ $(BUILD):
 #---------------------------------------------------------------------------------
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(OUTPUT).elf $(OUTPUT).dol
+	@rm -fr $(BUILD) $(OUTPUT).elf $(OUTPUT).dol $(CURDIR)/apps/$(TARGET)/boot.dol $(OUTPUT).zip
 
 #---------------------------------------------------------------------------------
 run:
 	wiiload $(TARGET).dol
 
+
 #---------------------------------------------------------------------------------
+pack: $(BUILD)
+	@echo Copying .dol file...
+	@cp $(TARGET).dol apps/$(TARGET)/boot.dol
+	@echo Zipping application...
+	zip -r $(OUTPUT).zip apps/
 else
 
 DEPENDS	:=	$(OFILES:.o=.d)
