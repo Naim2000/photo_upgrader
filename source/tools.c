@@ -26,7 +26,7 @@ void init_video(int row, int col) {
 	VIDEO_Flush();
 	VIDEO_WaitVSync();
 	if(rmode->viTVMode&VI_NON_INTERLACE) VIDEO_WaitVSync();
-	//printf("\x1b[%d;%dH", row, col);
+	printf("\x1b[%d;%dH", row, col);
 }
 
 unsigned int check_title(const uint64_t tid) {
@@ -61,15 +61,17 @@ bool check_vwii(void) {
 
 int get_title_rev(const uint64_t tid) {
 	unsigned int viewsize = 0;
+	OSReport("get_title_rev(%016llx)\n", tid);
 
 	ES_GetTMDViewSize(tid, &viewsize);
-	if(!viewsize) return -ENOENT;
+	OSReport("view size %u\n", viewsize);
+	if(!viewsize) return -1;
 
 	unsigned char _view[viewsize] ATTRIBUTE_ALIGN(0x20);
 	tmd_view* view =  (void*)_view;
 
 	int ret = ES_GetTMDView(tid, _view, viewsize);
-	if(ret < 0) return ret;
+	if(ret < 0) return -1;
 	else return view->title_version;
 }
 

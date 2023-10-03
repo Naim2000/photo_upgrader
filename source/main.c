@@ -1,4 +1,4 @@
-#define VERSION "0.9.0"
+#define VERSION "1.0.0"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -217,11 +217,13 @@ int install() {
 		return 0;
 	}
 
+	printf("=> Installing Photo Channel 1.1...\n");
+
 	if (check_title(tid) >= 2)
-		printf("HAYA is present, using offline mode.\n\n");
+		printf("Hidden channel is present, using offline mode.\n\n");
 
 	else {
-		printf("HAYA is not present, using online mode.\n");
+		printf("Hidden channel is not present, downloading time!\n");
 
 		printf("> Initializing network... ");
 		ret = net_init_retry(5);
@@ -421,10 +423,15 @@ int restore() {
 	unsigned int certs_size = 0, tik_size = 0, tmd_size = 0;
 	signed_blob *s_certs, *s_tmd, *s_tik;
 
+	printf("=> Restoring Photo Channel 1.0...\n");
+
 	int HAAA_rev = get_title_rev(tid_new), HAZA = check_title(tid_stub);
 	OSReport("HAAA rev is %u, HAZA existence level is %d\n", HAAA_rev, HAZA);
-	if(HAAA_rev <= 2 && HAZA >= 2) {
-		printf("Check Data management.\n");
+	if(HAAA_rev > 0 && HAAA_rev <= 2) {
+		printf(HAZA >= 2 ?
+			"Check Data management.\n" :
+			"You already did this?\n"
+		);
 		return 0;
 	}
 
@@ -541,7 +548,7 @@ int restore() {
 		return ret;
 	}
 
-	printf("OK!!\n");
+	printf("\x1b[42m All done! \x1b[40m\n");
 	return 0;
 }
 
@@ -574,7 +581,7 @@ int main() {
 
 		"Press A to install Photo Channel 1.1." "\n"
 		"Press B to restore Photo Channel 1.0." "\n"
-		"Press HOME/START to return to loader." "\n"
+		"Press HOME/START to return to loader." "\n\n"
 	);
 
 	while(true) {

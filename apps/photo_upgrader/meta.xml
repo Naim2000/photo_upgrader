@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <app version="1">
 	<name>photo_upgrader</name>
-	<version>0.9.0</version>
+	<version>1.0.0</version>
 	<release_date></release_date>
 	<coder>thepikachugamer</coder>
-	<short_description></short_description>
-	<long_description>
+	<short_description>Photo Channel 1.1 Installer</short_description>
+	<long_description>Photo Channel 1.1 installer.
+
+This application downloads the hidden Photo Channel 1.1 title and places it directly over Photo Channel 1.0, allowing it to show on the Wii menu.
+
+Source code: https://github.com/Naim2000/photo_upgrader
 </long_description>
 <ahb_access/>
 </app>
