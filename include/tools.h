@@ -24,6 +24,9 @@ void init_video(int row, int col);
 
 uint16_t input_scan(uint16_t value);
 int quit(int ret);
+int net_init_retry(unsigned int retries);
+int get_title_rev(const uint64_t tid);
+unsigned int check_title(const uint64_t tid);
 
 bool check_dolphin(void);
 bool check_vwii(void);

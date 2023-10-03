@@ -1,6 +1,7 @@
 #include "tools.h"
 
 #include <stdio.h>
+#include <errno.h>
 #include <wiiuse/wpad.h>
 #include <gccore.h>
 #include <ogc/es.h>
@@ -25,7 +26,23 @@ void init_video(int row, int col) {
 	VIDEO_Flush();
 	VIDEO_WaitVSync();
 	if(rmode->viTVMode&VI_NON_INTERLACE) VIDEO_WaitVSync();
-	printf("\x1b[%d;%dH", row, col);
+	//printf("\x1b[%d;%dH", row, col);
+}
+
+unsigned int check_title(const uint64_t tid) {
+	OSReport("check_title(%016llx)\n", tid);
+	unsigned int lv = 0, viewcnt = 0, cnt = 0;
+
+	ES_GetNumTicketViews(tid, &viewcnt);
+	OSReport("* view count: %u\n", viewcnt);
+	if (viewcnt) {
+		lv++;
+		ES_GetTitleContentsCount(tid, &cnt);
+		OSReport("* contents count: %u\n", cnt);
+		if (cnt) lv++;
+	}
+	OSReport("total existence level is %u\n", lv);
+	return lv;
 }
 
 bool check_dolphin(void) {
@@ -38,14 +55,33 @@ bool check_dolphin(void) {
 }
 
 bool check_vwii(void) {
-	if(!~vwii) {
-		unsigned int cnt = 0;
-		ES_GetTitleContentsCount(0x0000000100000200LL, &cnt);
-		vwii = cnt > 0;
-	}
-    return vwii;
+	if(!~vwii) vwii = check_title( 1LL << 32 | 0x200 ) >= 2;
+	return vwii;
 }
 
+int get_title_rev(const uint64_t tid) {
+	unsigned int viewsize = 0;
+
+	ES_GetTMDViewSize(tid, &viewsize);
+	if(!viewsize) return -ENOENT;
+
+	unsigned char _view[viewsize] ATTRIBUTE_ALIGN(0x20);
+	tmd_view* view =  (void*)_view;
+
+	int ret = ES_GetTMDView(tid, _view, viewsize);
+	if(ret < 0) return ret;
+	else return view->title_version;
+}
+
+int net_init_retry(unsigned int retries) {
+	int ret = 0;
+	for (int s = 0; s < 5; s++) {
+		ret = net_init();
+		if(!ret || ret != -EAGAIN) break;
+	}
+
+	return ret;
+}
 
 uint16_t input_scan(uint16_t value) {
 	uint16_t input = 0x00;
