@@ -21,6 +21,7 @@ void OSReport(const char* fmt, ...) {};
 
 int main() {
 	int ret;
+	bool vwii = false;
 	int64_t id_HAYA = 0x0001000248415941LL, id_HAAA = 0x0001000248414141LL;
 	struct Title HAYA = {}, HAAA = {};
 
@@ -38,6 +39,13 @@ int main() {
 	initpads();
 	ISFS_Initialize();
 	CONF_Init();
+
+	uint32_t x = 0;
+	ES_GetTitleContentsCount(0x100000200LL, &x);
+	if (x) {
+		puts("This seems to be a vWii (BC-NAND is present)");
+		vwii = true;
+	}
 
 	if (CONF_GetRegion() == CONF_REGION_KR) {
 		puts("This Wii seems to be Korean, using Korean photo channels.");
@@ -91,6 +99,10 @@ int main() {
 			}
 			puts("\nChanging title ID...");
 			ChangeTitleID(&HAYA, id_HAAA);
+
+			if (vwii)
+				HAYA.tmd->sys_version = 1LL << 32 | 58;
+
 
 			puts("\nInstalling...");
 			ret = InstallTitle(&HAYA, true);
