@@ -88,7 +88,7 @@ void network_deinit() {
 int DownloadFile(char* url, DownloadType type, void* data, void* userp) {
 	CURL* curl;
 	CURLcode res;
-	xferinfo_data xferdata;
+	xferinfo_data xferdata = {};
 
 	curl = curl_easy_init();
 	if (!curl)

@@ -14,8 +14,6 @@
 
 #define INIT_STRUCT(v) v = (__typeof__(v)){}
 
-static bool dip = false;
-
 [[gnu::weak, gnu::format(printf, 1, 2)]]
 void OSReport(const char* fmt, ...) {}
 
@@ -32,8 +30,7 @@ int main() {
 	if (patchIOS(false) < 0) {
 		puts("Failed to apply IOS patches...!");
 		sleep(2);
-		dip = true;
-		return -1;
+		leave(true);
 	}
 
 	initpads();
@@ -66,7 +63,7 @@ int main() {
 
 		"Press A to install Photo Channel 1.1\n"
 		"Press B to restore Photo Channel 1.0\n"
-		"Press HOME/START/RESET to exit.\n\n"
+		"Press HOME/START to return to loader.\n\n"
 	);
 
 	for (;;) {
@@ -75,9 +72,21 @@ int main() {
 		if (buttons & WPAD_BUTTON_A) {
 			if (rev_HAAA > 2) {
 				printf("It doesn't seem like you need this.\n"
-						"(HAAA title version %u > 2)\n", rev_HAAA);
+					   "(HAAA title version %u > 2)\n", rev_HAAA);
 				return 0;
 			}
+
+			printf("This will install the hidden Photo Channel 1.1\n"
+				 "title directly over Photo Channel 1.0.\n\n"
+
+				 "Is this OK?\n\n"
+
+				 "Press +/START to continue.\n"
+				 "Press any other button to cancel.\n\n");
+
+			wait_button(0);
+			if (!buttons_down(WPAD_BUTTON_PLUS))
+				return 0;
 
 			puts("Getting title metadata...");
 			ret = GetInstalledTitle(id_HAYA, &HAYA);
@@ -88,7 +97,7 @@ int main() {
 					puts("Failed to initialize network!");
 					return ret;
 				}
-				printf("Wii IP Address: %s\n", PrintIPAddress());
+				printf("Initialized network. Wii IP Address: %s\n", PrintIPAddress());
 
 				puts("Downloading title metadata...");
 				ret = DownloadTitleMeta(id_HAYA, -1, &HAYA);
@@ -128,8 +137,7 @@ int main() {
 				puts("Failed to initialize network!");
 				return ret;
 			}
-			puts("Initialized network.");
-			printf("Wii IP Address: %s\n", PrintIPAddress());
+			printf("Initialized network. Wii IP Address: %s\n", PrintIPAddress());
 
 			puts("Downloading title metadata...");
 			ret = DownloadTitleMeta(id_HAAA, -1, &HAAA);
@@ -142,7 +150,7 @@ int main() {
 			ret = InstallTitle(&HAAA, true);
 			FreeTitle(&HAAA);
 			if (ret < 0) {
-				printf("Failed! (%i)\n%s", ret, GetLastDownloadError());
+				printf("Failed! (%i)\n%s\n", ret, GetLastDownloadError());
 				return ret;
 			}
 			puts("\n\x1b[42mDone!\x1b[40m");
@@ -158,11 +166,13 @@ int main() {
 }
 
 [[gnu::destructor]]
-void leave() {
-	if (!dip) printf("Press HOME/START/RESET to exit.");
+void leave(bool now) {
 	network_deinit();
 	ISFS_Deinitialize();
-	while (!dip) {
+
+	if (now) return;
+	printf("\nPress HOME/START to return to loader.");
+	for (;;) {
 		scanpads();
 		if (buttons_down(WPAD_BUTTON_HOME))
 			break;
