@@ -49,6 +49,12 @@ static size_t WriteToBlob(void* buffer, size_t size, size_t nmemb, void* userp) 
 static int xferinfo_cb(void* userp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) {
 	xferinfo_data* data = userp;
 
+	if (!dltotal)
+		return 0;
+
+	if (!data->start)
+		data->start = gettime();
+
 	u64 now = gettime();
 	u32 elapsed = diff_msec(data->start, now);
 
@@ -109,7 +115,6 @@ int DownloadFile(char* url, DownloadType type, void* data, void* userp) {
 			break;
 	}
 	ebuffer[0] = '\x00';
-	xferdata.start = gettime();
 	res = curl_easy_perform(curl);
 	putchar('\n');
 	curl_easy_cleanup(curl);

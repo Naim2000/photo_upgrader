@@ -17,19 +17,19 @@
 static bool dip = false;
 
 [[gnu::weak, gnu::format(printf, 1, 2)]]
-void OSReport(const char* fmt, ...) {};
+void OSReport(const char* fmt, ...) {}
 
 int main() {
 	int ret;
 	bool vwii = false;
-	int64_t id_HAYA = 0x0001000248415941LL, id_HAAA = 0x0001000248414141LL;
+	static int64_t id_HAYA = 0x0001000248415941LL, id_HAAA = 0x0001000248414141LL;
 	struct Title HAYA = {}, HAAA = {};
 
 	printf(
 		"Photo Channel 1.1 Installer v" VERSION ", by thepikachugamer\n\n"
 	);
 
-	if (patchIOS(true) < 0) {
+	if (patchIOS(false) < 0) {
 		puts("Failed to apply IOS patches...!");
 		sleep(2);
 		dip = true;
@@ -48,7 +48,7 @@ int main() {
 	}
 
 	if (CONF_GetRegion() == CONF_REGION_KR) {
-		puts("This Wii seems to be Korean, using Korean photo channels.");
+		puts("This Wii seems to be Korean, using Korean photo channels.\n");
 		id_HAYA = (id_HAYA & ~0xFF) | 'K';
 		id_HAAA = (id_HAAA & ~0xFF) | 'K';
 	}
@@ -115,7 +115,7 @@ int main() {
 			break;
 		}
 		else if (buttons & WPAD_BUTTON_B) {
-			if (rev_HAAA < 3) {
+			if (rev_HAAA && rev_HAAA < 3) {
 				printf("It doesn't seem like you need this.\n"
 						"(HAAA title version %u < 3)\n", rev_HAAA);
 				return 0;
@@ -163,7 +163,7 @@ void leave() {
 	ISFS_Deinitialize();
 	while (!dip) {
 		scanpads();
-		if (buttons_down(WPAD_BUTTON_HOME))
+		if (buttons_down(WPAD_BUTTON_HOME) || SYS_ResetButtonDown())
 			break;
 	}
 	WPAD_Shutdown();

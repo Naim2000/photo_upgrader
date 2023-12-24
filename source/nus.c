@@ -331,17 +331,40 @@ int InstallTitle(struct Title* title, bool purge) {
 			mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_ENCRYPT, align_csize, iv.full, buffer, buffer);
 
 			ret = ES_AddContentData(cfd, buffer, align_csize);
+			free(buffer);
 		}
 		else {
+			blob cdownload = { memalign(0x20, 0x20) };
+			void* buffer = NULL;
+
 			sprintf(url, "%s/ccs/download/%016llx/%08x", NUS_SERVER, title->id, content->cid);
-			ret = DownloadFile(url, DOWNLOAD_CUSTOM, &ES_DownloadContentData, &cfd);
+			/* ret = DownloadFile(url, DOWNLOAD_CUSTOM, ES_DownloadContentData, &cfd); */
+			ret = DownloadFile(url, DOWNLOAD_BLOB, &cdownload, NULL);
 			if (ret != 0)
 				break;
+
+			if ((uintptr_t)cdownload.ptr & 0x1F) {
+				buffer = memalign(0x20, cdownload.size);
+				if (!buffer) {
+					ret = -ENOMEM;
+					break;
+				}
+
+				memcpy(buffer, cdownload.ptr, cdownload.size);
+				free(cdownload.ptr);
+			}
+			else {
+				buffer = cdownload.ptr;
+			}
+
+			ret = ES_AddContentData(cfd, buffer, cdownload.size);
+			free(buffer);
 		}
 
 		ret = ES_AddContentFinish(cfd);
 		if (ret < 0)
 			break;
+
 	}
 
 	if (!ret)
