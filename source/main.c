@@ -50,7 +50,7 @@ int main() {
 	if (CONF_GetRegion() == CONF_REGION_KR) {
 		puts("This Wii seems to be Korean, using Korean photo channels.\n");
 		id_HAYA = (id_HAYA & ~0xFF) | 'K';
-		id_HAAA = (id_HAAA & ~0xFF) | 'K';
+	//	id_HAAA = (id_HAAA & ~0xFF) | 'K'; never actually existed? i'm stupid
 	}
 
 	uint16_t rev_HAAA = 0;
@@ -66,12 +66,12 @@ int main() {
 
 		"Press A to install Photo Channel 1.1\n"
 		"Press B to restore Photo Channel 1.0\n"
-		"Press HOME/START to exit\n\n"
+		"Press HOME/START/RESET to exit.\n\n"
 	);
 
 	for (;;) {
 		scanpads();
-		uint32_t buttons = buttons_down();
+		uint32_t buttons = buttons_down(0);
 		if (buttons & WPAD_BUTTON_A) {
 			if (rev_HAAA > 2) {
 				printf("It doesn't seem like you need this.\n"
@@ -97,21 +97,22 @@ int main() {
 					return ret;
 				}
 			}
-			puts("\nChanging title ID...");
+			puts("Changing title ID...");
 			ChangeTitleID(&HAYA, id_HAAA);
 
 			if (vwii)
 				HAYA.tmd->sys_version = 1LL << 32 | 58;
 
+			Fakesign(&HAYA);
 
-			puts("\nInstalling...");
+			puts("Installing...");
 			ret = InstallTitle(&HAYA, true);
 			FreeTitle(&HAYA);
 			if (ret < 0) {
 				printf("Failed! (%i)\n%s\n", ret, GetLastDownloadError());
 				return ret;
 			}
-			puts("\n\x1b[32;1mDone!\x1b[39m");
+			puts("\n\x1b[42mDone!\x1b[40m");
 			break;
 		}
 		else if (buttons & WPAD_BUTTON_B) {
@@ -144,7 +145,7 @@ int main() {
 				printf("Failed! (%i)\n%s", ret, GetLastDownloadError());
 				return ret;
 			}
-			puts("\n\x1b[32;1mDone!\x1b[39m");
+			puts("\n\x1b[42mDone!\x1b[40m");
 			break;
 		}
 		else if (buttons & WPAD_BUTTON_HOME)
@@ -158,12 +159,12 @@ int main() {
 
 [[gnu::destructor]]
 void leave() {
-	printf("\nPress HOME/START/RESET to exit.");
+	if (!dip) printf("Press HOME/START/RESET to exit.");
 	network_deinit();
 	ISFS_Deinitialize();
 	while (!dip) {
 		scanpads();
-		if (buttons_down(WPAD_BUTTON_HOME) || SYS_ResetButtonDown())
+		if (buttons_down(WPAD_BUTTON_HOME))
 			break;
 	}
 	WPAD_Shutdown();

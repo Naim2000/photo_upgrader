@@ -14,9 +14,6 @@ void initpads() {
 }
 
 void scanpads() {
-	if (SYS_ResetButtonDown())
-		pad_buttons |= WPAD_BUTTON_HOME;
-
 	if (!pad_inited)
 		return;
 
@@ -26,6 +23,9 @@ void scanpads() {
 	u16 gcn_down = PAD_ButtonsDown(0);
 	pad_buttons_held = WPAD_ButtonsHeld(0);
 	u16 gcn_down_held = PAD_ButtonsHeld(0);
+
+	if (SYS_ResetButtonDown())
+		pad_buttons |= WPAD_BUTTON_HOME;
 
 	if (gcn_down & PAD_BUTTON_A) pad_buttons |= WPAD_BUTTON_A;
 	if (gcn_down & PAD_BUTTON_B) pad_buttons |= WPAD_BUTTON_B;

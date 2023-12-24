@@ -35,12 +35,13 @@ typedef union {
 	aeskey full;
 } aesiv;
 
+/*
 static size_t ES_DownloadContentData(void* buffer, size_t size, size_t nmemb, void* userp) {
 	int cfd = *(int*)userp;
 	size_t len = size * nmemb;
 
 	if ((uintptr_t)buffer & 0x1F) {
-		void* temp = memalign(0x20, len);
+		void* temp = memalign(0x20, len); iosc what the hell do you mean unaligned data
 		if (!temp)
 			return CURL_WRITEFUNC_ERROR;
 
@@ -53,6 +54,7 @@ static size_t ES_DownloadContentData(void* buffer, size_t size, size_t nmemb, vo
 
 	return len;
 }
+*/
 
 int GetInstalledTitle(int64_t titleID, struct Title* title) {
 	int ret;
@@ -183,8 +185,6 @@ void ChangeTitleID(struct Title* title, int64_t new) {
 	title->tmd->title_id = new;
 
 	title->ticket->titleid = new;
-
-	Fakesign(title);
 }
 
 static int PurgeTitle(int64_t titleid) {
