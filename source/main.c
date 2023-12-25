@@ -40,7 +40,7 @@ int main() {
 	uint32_t x = 0;
 	ES_GetTitleContentsCount(0x100000200LL, &x);
 	if (x) {
-		puts("This seems to be a vWii (BC-NAND is present)");
+		puts("This seems to be a \x1b[34mvWii\x1b[39m (BC-NAND is present)\n");
 		vwii = true;
 	}
 
