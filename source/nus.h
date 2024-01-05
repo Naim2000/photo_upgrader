@@ -14,8 +14,6 @@ struct Title {
 	struct _tik* ticket;
 
 	aeskey key;
-
-	struct _tikview* views;
 };
 
 int DownloadTitleMeta(int64_t, int, struct Title*);

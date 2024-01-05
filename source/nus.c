@@ -56,6 +56,8 @@ static size_t ES_DownloadContentData(void* buffer, size_t size, size_t nmemb, vo
 }
 */
 
+static void* alloc(size_t size) { return aligned_alloc(0x20, roundup(size, 0x20)); } // Turns out memalign is fucked
+
 int GetInstalledTitle(int64_t titleID, struct Title* title) {
 	int ret;
 	void* buffer = NULL;
@@ -67,9 +69,11 @@ int GetInstalledTitle(int64_t titleID, struct Title* title) {
 	if (ret < 0 || !tmd_size)
 		goto error;
 
-	buffer = memalign(0x20, tmd_size);
-	if (!buffer)
+	buffer = alloc(tmd_size);
+	if (!buffer) {
+		ret = -ENOMEM;
 		goto error;
+	}
 
 	ret = ES_GetStoredTMD(titleID, buffer, tmd_size);
 	if (ret < 0)
@@ -85,9 +89,11 @@ int GetInstalledTitle(int64_t titleID, struct Title* title) {
 	if (ret < 0)
 		goto error;
 
-	buffer = memalign(0x20, STD_SIGNED_TIK_SIZE);
-	if (!buffer)
+	buffer = alloc(STD_SIGNED_TIK_SIZE);
+	if (!buffer) {
+		ret = -ENOMEM;
 		goto error;
+	}
 
 	ret = ISFS_Read(fd, buffer, STD_SIGNED_TIK_SIZE);
 	ISFS_Close(fd);
@@ -107,23 +113,6 @@ int GetInstalledTitle(int64_t titleID, struct Title* title) {
 	iv.tid = title->ticket->titleid;
 	mbedtls_aes_setkey_dec(&aes, wii_ckey, sizeof(aeskey) * 8);
 	mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_DECRYPT, sizeof(aeskey), iv.full, title->ticket->cipher_title_key, title->key);
-
-	uint32_t viewcount = 0;
-	ret = ES_GetNumTicketViews(titleID, &viewcount);
-	if (ret < 0 || !viewcount)
-		goto error;
-
-	buffer = memalign(0x20, sizeof(tikview) * viewcount);
-	if (!buffer) {
-		ret = -ENOMEM;
-		goto error;
-	}
-
-	ret = ES_GetTicketViews(titleID, buffer, viewcount);
-	if (ret < 0)
-		goto error;
-
-	title->views = buffer;
 
 	title->id = titleID;
 	title->local = true;
@@ -199,7 +188,7 @@ static int PurgeTitle(int64_t titleid) {
 	if (!viewcnt)
 		return ENOENT;
 
-	views = memalign(0x20, sizeof(tikview) * viewcnt);
+	views = alloc(sizeof(tikview) * viewcnt);
 	if (!views)
 		return -ENOMEM;
 
@@ -235,7 +224,7 @@ int InstallTitle(struct Title* title, bool purge) {
 		return ret;
 
 	certs_size = isfs_fstats.file_length;
-	certs = memalign(0x20, certs_size);
+	certs = alloc(certs_size);
 	if (!certs)
 		return -ENOMEM;
 
@@ -255,7 +244,7 @@ int InstallTitle(struct Title* title, bool purge) {
 		tmdsize = SIGNED_TMD_SIZE(title->s_tmd),
 		bufsize = MIN(tmdsize, tiksize);
 
-	s_buffer = memalign(0x20, bufsize);
+	s_buffer = alloc(bufsize);
 	if (!s_buffer) {
 		ret = -ENOMEM;
 		goto finish;
@@ -296,37 +285,29 @@ int InstallTitle(struct Title* title, bool purge) {
 			*/
 
 			size_t align_csize = roundup(content->size, 0x10);
-			void* buffer = memalign(0x20, align_csize);
+			void* buffer = alloc(align_csize);
 			if (!buffer) {
 				ret = -ENOMEM;
 				break;
 			}
 
 			memset(buffer + align_csize - 0x10, 0, 0x10);
-			/*
-			size_t read = fread(buffer, 1, content->size, contentfp);
-			fclose(contentfp);
-			if (read < content->size) {
-				perror("ES devoptab failed :((\n");
-				ret = -errno;
-				break;
-			}
-			*/
 
-			int s_cfd = ret = ES_OpenTitleContent(title->id, title->views, content->index);
+			sprintf(url /* is this guy serious */ , "/title/%08x/%08x/content/%08x.app",
+					(uint32_t)(title->id >> 32), (uint32_t)(title->id & 0xFFFFFFFF), content->cid);
+			fd = ret = ISFS_Open(url, ISFS_OPEN_READ);
 			if (ret < 0)
 				break;
 
-			ret = ES_ReadContent(s_cfd, buffer, content->size);
-			ES_CloseContent(s_cfd);
+			ret = ISFS_Read(fd, buffer, content->size);
+			ISFS_Close(fd);
 
 			if (ret < 0)
 				break;
 
 			mbedtls_aes_context aes = {};
-			aesiv iv = {};
+			aesiv iv = { content->index };
 
-			iv.index = content->index;
 			mbedtls_aes_setkey_enc(&aes, title->key, sizeof(aeskey) * 8);
 			mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_ENCRYPT, align_csize, iv.full, buffer, buffer);
 
@@ -334,7 +315,7 @@ int InstallTitle(struct Title* title, bool purge) {
 			free(buffer);
 		}
 		else {
-			blob cdownload = { memalign(0x20, 0x20) };
+			blob cdownload = { alloc(0x20) };
 			void* buffer = NULL;
 
 			sprintf(url, "%s/ccs/download/%016llx/%08x", NUS_SERVER, title->id, content->cid);
@@ -344,7 +325,7 @@ int InstallTitle(struct Title* title, bool purge) {
 				break;
 
 			if ((uintptr_t)cdownload.ptr & 0x1F) {
-				buffer = memalign(0x20, cdownload.size);
+				buffer = alloc(cdownload.size);
 				if (!buffer) {
 					ret = -ENOMEM;
 					break;
@@ -409,5 +390,4 @@ void FreeTitle(struct Title* title) {
 	if (!title) return;
 	free(title->s_tmd);
 	free(title->s_tik);
-	free(title->views);
 }
