@@ -56,10 +56,13 @@ static int xferinfo_cb(void* userp, curl_off_t dltotal, curl_off_t dlnow, curl_o
 		data->start = gettime();
 
 	u64 now = gettime();
-	u32 elapsed = diff_msec(data->start, now);
+	u32 elapsed = diff_sec(data->start, now);
 
-	printf("\r%llu/%llu bytes // %.2f KB/s...",
-		   dlnow, dltotal, 		((double)dlnow / 0x400) / ((double)elapsed / 1000));
+	float f_dlnow = dlnow / 1024.f;
+	float f_dltotal = dltotal / 1024.f;
+
+	printf("\r%.2f/%.2f KB // %.2f KB/s...",
+		  f_dlnow, f_dltotal, f_dlnow / elapsed);
 
 	return 0;
 }
@@ -115,6 +118,7 @@ int DownloadFile(char* url, DownloadType type, void* data, void* userp) {
 			break;
 	}
 	ebuffer[0] = '\x00';
+	printf("\x1b[30;1mDownloading %s\x1b[39m\n", url);
 	res = curl_easy_perform(curl);
 	putchar('\n');
 	curl_easy_cleanup(curl);
