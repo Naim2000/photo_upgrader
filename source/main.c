@@ -20,6 +20,21 @@ struct option {
 	bool selected;
 };
 
+[[gnu::destructor]]
+void leave(bool now) {
+	network_deinit();
+	ISFS_Deinitialize();
+
+	if (now) return;
+	printf("\nPress HOME/START to return to loader.");
+	for (;;) {
+		scanpads();
+		if (buttons_down(WPAD_BUTTON_HOME))
+			break;
+	}
+	WPAD_Shutdown();
+}
+
 static bool SelectOptionsMenu(struct option options[]) {
 	int cnt = 0, index = 0, curX = 0, curY = 0;
 	while (options[++cnt].name)
@@ -99,11 +114,11 @@ const char GetSystemRegionLetter(void) {
 }
 
 int main() {
-	int ret;
-	bool vwii = false;
+	static enum { Wii, vWii, Mini } consoleType;
 
 	static struct option opts[] = {
-		{"End-user License Agreement channel"},
+		{"End-user License Agreement App"},
+		{"Region Select App"},
 		{"Mii Channel (Wii version)"},
 		{"Photo Channel 1.1b"},
 		{"Wii Shop Channel (!?)"},
@@ -124,15 +139,6 @@ int main() {
 	initpads();
 	ISFS_Initialize();
 
-	struct Title sm = {};
-	if (!GetInstalledTitle(0x100000002LL, &sm)) {
-		uint16_t sm_rev = sm.tmd->title_version;
-		FreeTitle(&sm);
-		if (!(sm_rev & 0x1000) && !vwii)
-			puts("\x1b[30;1mYou seem to be on a normal Wii. There isn't a lot to do here...\x1b[39m");
-
-	}
-
 	const char regionLetter = GetSystemRegionLetter();
 	if (!regionLetter) {
 		puts("Failed to identify system region (!?)");
@@ -140,11 +146,24 @@ int main() {
 	}
 
 	uint32_t x = 0;
+	struct Title sm = {};
+
 	ES_GetTitleContentsCount(0x100000200LL, &x);
 	if (x) {
 		puts("This seems to be a \x1b[34mvWii\x1b[39m (BC-NAND is present)\n");
-		vwii = true;
+		consoleType = vWii;
 	}
+	else if (!GetInstalledTitle(0x100000002LL, &sm)) {
+		uint16_t sm_rev = sm.tmd->title_version;
+		FreeTitle(&sm);
+		if (sm_rev & 0x1000)
+			consoleType = Mini;
+		else
+			puts("\x1b[30;1mYou seem to be on a normal Wii. There isn't a lot to do here...\x1b[39m");
+	}
+
+
+
 
 	if (network_init() < 0) {
 		puts("Failed to initialize network..!");
@@ -161,39 +180,32 @@ int main() {
 	putchar('\n');
 
 	if (opts[0].selected) {
-		puts("[+] Installing EULA channel...");
+		puts("[+] Installing EULA...");
 		if (InstallChannelQuick(0x0001000848414C00LL | regionLetter, 0, 0) < 0) return -1;
 	}
 	if (opts[1].selected) {
+		if (consoleType == vWii) puts("[*] Please use vWii decaffeinator for this...");
+		else {
+			puts("[+] Installing Region select...");
+			if (InstallChannelQuick(0x0001000848414B00LL | regionLetter, 0, 0) < 0) return -1;
+		}
+	}
+	if (opts[2].selected) {
 		puts("[+] Installing standard Mii Channel...");
 		if (InstallChannelQuick(0x0001000248414341LL, 0, 0) < 0) return -1;
 	}
-	if (opts[2].selected) {
-		puts("[+] Installing Photo Channel 1.1b...");
-		if (InstallChannelQuick(0x0001000248415941LL, 0x0001000248414141LL, vwii? 58 : 61) < 0) return -1;
-	}
 	if (opts[3].selected) {
-		if (vwii) puts("[*] Please use vWii decaffeinator for this...");
+		puts("[+] Installing Photo Channel 1.1b...");
+		if (InstallChannelQuick(0x0001000248415941LL, 0x0001000248414141LL, consoleType == vWii? 58 : 61) < 0) return -1;
+	}
+	if (opts[4].selected) {
+		if (consoleType == vWii) puts("[*] Please use vWii decaffeinator for this...");
 		else {
 			puts("[+] Installing Wii Shop Channel...");
-			if (InstallChannelQuick(0x0001000248414200LL | regionLetter == 'K' ? 'K' : 'A', 0, 0) < 0) return -1;
+			if (InstallChannelQuick(0x0001000248414200LL | (regionLetter == 'K') ? 'K' : 'A', 0, 0) < 0) return -1;
 		}
 	}
 
 	return 0;
 }
 
-[[gnu::destructor]]
-void leave(bool now) {
-	network_deinit();
-	ISFS_Deinitialize();
-
-	if (now) return;
-	printf("\nPress HOME/START to return to loader.");
-	for (;;) {
-		scanpads();
-		if (buttons_down(WPAD_BUTTON_HOME))
-			break;
-	}
-	WPAD_Shutdown();
-}
