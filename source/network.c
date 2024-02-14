@@ -56,13 +56,13 @@ static int xferinfo_cb(void* userp, curl_off_t dltotal, curl_off_t dlnow, curl_o
 		data->start = gettime();
 
 	u64 now = gettime();
-	u32 elapsed = diff_sec(data->start, now);
+	u32 elapsed = diff_msec(data->start, now);
 
 	float f_dlnow = dlnow / 1024.f;
 	float f_dltotal = dltotal / 1024.f;
 
 	printf("\r%.2f/%.2f KB // %.2f KB/s...",
-		  f_dlnow, f_dltotal, f_dlnow / elapsed);
+		  f_dlnow, f_dltotal, f_dlnow / (elapsed / 1000.f));
 
 	return 0;
 }
@@ -100,9 +100,9 @@ int DownloadFile(char* url, DownloadType type, void* data, void* userp) {
 	curl_easy_setopt(curl, CURLOPT_URL, url);
 	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, ebuffer);
-	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-	curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, xferinfo_cb);
-	curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &xferdata);
+//	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+//	curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, xferinfo_cb);
+//	curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &xferdata);
 	switch (type) {
 		case DOWNLOAD_BLOB:
 			curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteToBlob);
@@ -118,9 +118,8 @@ int DownloadFile(char* url, DownloadType type, void* data, void* userp) {
 			break;
 	}
 	ebuffer[0] = '\x00';
-	printf("\x1b[30;1mDownloading %s\x1b[39m\n", url);
+	printf("\x1b[30;1m	>> %s\x1b[39m\n", url);
 	res = curl_easy_perform(curl);
-	putchar('\n');
 	curl_easy_cleanup(curl);
 
 	if (res != CURLE_OK) {

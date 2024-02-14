@@ -12,19 +12,107 @@
 
 #define VERSION "1.1.0"
 
-#define INIT_STRUCT(v) v = (__typeof__(v)){}
-
 [[gnu::weak, gnu::format(printf, 1, 2)]]
 void OSReport(const char* fmt, ...) {}
+
+struct option {
+	const char* name;
+	bool selected;
+};
+
+static bool SelectOptionsMenu(struct option options[]) {
+	int cnt = 0, index = 0, curX = 0, curY = 0;
+	while (options[++cnt].name)
+		;
+
+	CON_GetPosition(&curX, &curY);
+
+	for (;;) {
+		struct option* opt = options + index;
+
+		printf("\x1b[%i;%iH", curY, curX);
+		for (int i = 0; i < cnt; i++)
+			printf("%s%s	%s\x1b[40m\x1b[39m\n", i == index? ">>" : "  ",
+				   options[i].selected? "\x1b[47;1m\x1b[30m" : "", options[i].name);
+
+		for (;;) {
+			scanpads();
+			uint32_t buttons = buttons_down(0);
+
+			if (buttons & WPAD_BUTTON_DOWN) {
+				if (++index == cnt) index = 0;
+				break;
+			}
+			else if (buttons & WPAD_BUTTON_UP) {
+				if (--index < 0) index = cnt - 1;
+				break;
+			}
+
+			else if (buttons & WPAD_BUTTON_A) { opt->selected ^= true; break; }
+			else if (buttons & WPAD_BUTTON_PLUS) return true;
+			else if (buttons & (WPAD_BUTTON_B | WPAD_BUTTON_HOME)) return false;
+		}
+	}
+}
+
+static int InstallChannelQuick(uint64_t titleID, uint64_t newTID, int32_t newIOS) {
+	struct Title title = {};
+
+	printf("	>> Downloading %016llx metadata...\n", titleID);
+	int ret = DownloadTitleMeta(titleID, -1, &title);
+	if (ret < 0) {
+		printf("failed! (%i)\n", ret);
+		return ret;
+	}
+
+	if (newTID) {
+		ChangeTitleID(&title, newTID);
+		Fakesign(&title);
+	}
+	if (newIOS) {
+		title.tmd->sys_version=0x1LL<<32 | newIOS;
+		Fakesign(&title);
+	}
+
+	printf("	>> Installing %016llx...\n", titleID);
+	ret = InstallTitle(&title, true);
+	FreeTitle(&title);
+	if (ret < 0) {
+		printf("failed! (%i)\n", ret);
+		return ret;
+	}
+
+	return 0;
+}
+
+const char GetSystemRegionLetter(void) {
+	CONF_Init();
+
+	switch (CONF_GetRegion()) {
+		case CONF_REGION_JP: return 'J';
+		case CONF_REGION_US: return 'E';
+		case CONF_REGION_EU: return 'P';
+		case CONF_REGION_KR: return 'K';
+	}
+
+	return 0;
+}
 
 int main() {
 	int ret;
 	bool vwii = false;
-	static int64_t id_HAYA = 0x0001000248415941LL, id_HAAA = 0x0001000248414141LL;
-	struct Title HAYA = {}, HAAA = {};
 
-	printf(
-		"Photo Channel 1.1 Installer v" VERSION ", by thepikachugamer\n\n"
+	static struct option opts[] = {
+		{"End-user License Agreement channel"},
+		{"Mii Channel (Wii version)"},
+		{"Photo Channel 1.1b"},
+		{"Wii Shop Channel (!?)"},
+		{}
+	};
+
+	puts(
+		"\"wiiscu-next\" by thepikachugamer\n"
+		"This is a mix of photo_upgrader and cleartool\n"
 	);
 
 	if (patchIOS(false) < 0) {
@@ -35,7 +123,12 @@ int main() {
 
 	initpads();
 	ISFS_Initialize();
-	CONF_Init();
+
+	const char regionLetter = GetSystemRegionLetter();
+	if (!regionLetter) {
+		puts("failed to identify system region (!?)");
+		return -1;
+	}
 
 	uint32_t x = 0;
 	ES_GetTitleContentsCount(0x100000200LL, &x);
@@ -44,122 +137,38 @@ int main() {
 		vwii = true;
 	}
 
-	if (CONF_GetRegion() == CONF_REGION_KR) {
-		puts("This Wii seems to be Korean, using Korean photo channels.\n");
-		id_HAYA = (id_HAYA & ~0xFF) | 'K';
-	//	id_HAAA = (id_HAAA & ~0xFF) | 'K'; never actually existed? i'm stupid
+	if (network_init() < 0) {
+		puts("Failed to initialize network..!");
+		return -2;
 	}
 
-	uint16_t rev_HAAA = 0;
-	ret = GetInstalledTitle(id_HAAA, &HAAA);
-	if (HAAA.id) {
-		rev_HAAA = HAAA.tmd->title_version;
-		FreeTitle(&HAAA);
-		INIT_STRUCT(HAAA);
+	puts(
+		"Select the channels you would like to restore.\n"
+		"Press A to toggle an option. Press +/START to begin.\n"
+		"Press B to cancel." );
+
+	if (!SelectOptionsMenu(opts)) return 0;
+
+	putchar('\n');
+
+	if (opts[0].selected) {
+		puts("[+] Installing EULA channel...");
+		if (InstallChannelQuick(0x0001000848414C00LL | regionLetter, 0, 0) < 0) return -1;
 	}
-
-	printf(
-		"Super basic menu\n\n"
-
-		"Press A to install Photo Channel 1.1\n"
-		"Press B to restore Photo Channel 1.0\n"
-		"Press HOME/START to return to loader.\n\n"
-	);
-
-	for (;;) {
-		scanpads();
-		uint32_t buttons = buttons_down(0);
-		if (buttons & WPAD_BUTTON_A) {
-			if (rev_HAAA > 2) {
-				printf("It doesn't seem like you need this.\n"
-					   "(HAAA title version %u > 2)\n", rev_HAAA);
-				return 0;
-			}
-
-			printf("This will install the hidden Photo Channel 1.1\n"
-				 "title directly over Photo Channel 1.0.\n\n"
-
-				 "Is this OK?\n\n"
-
-				 "Press +/START to continue.\n"
-				 "Press any other button to cancel.\n\n");
-
-			wait_button(0);
-			if (!buttons_down(WPAD_BUTTON_PLUS))
-				return 0;
-
-			puts("Getting title metadata...");
-			ret = GetInstalledTitle(id_HAYA, &HAYA);
-			if (ret < 0) {
-				puts("HAYA is not present, initializing network...");
-				ret = network_init();
-				if (ret < 0) {
-					puts("Failed to initialize network!");
-					return ret;
-				}
-				printf("Initialized network. Wii IP Address: %s\n", PrintIPAddress());
-
-				puts("Downloading title metadata...");
-				ret = DownloadTitleMeta(id_HAYA, -1, &HAYA);
-				if (ret < 0) {
-					printf("Failed! (%i)\n%s\n", ret, GetLastDownloadError());
-					return ret;
-				}
-			}
-			puts("Changing title ID...");
-			ChangeTitleID(&HAYA, id_HAAA);
-
-			if (vwii)
-				HAYA.tmd->sys_version = 1LL << 32 | 58;
-
-			Fakesign(&HAYA);
-
-			puts("Installing...");
-			ret = InstallTitle(&HAYA, true);
-			FreeTitle(&HAYA);
-			if (ret < 0) {
-				printf("Failed! (%i)\n%s\n", ret, GetLastDownloadError());
-				return ret;
-			}
-			puts("\n\x1b[42mDone!\x1b[40m");
-			break;
+	if (opts[1].selected) {
+		puts("[+] Installing standard Mii Channel...");
+		if (InstallChannelQuick(0x0001000248414341LL, 0, 0) < 0) return -1;
+	}
+	if (opts[2].selected) {
+		puts("[+] Installing Photo Channel 1.1b...");
+		if (InstallChannelQuick(0x0001000248415941LL, 0x0001000248414141LL, vwii? 58 : 61) < 0) return -1;
+	}
+	if (opts[3].selected) {
+		if (vwii) puts("[*] Please use vWii decaffeinator for this...");
+		else {
+			puts("[+] Installing Wii Shop Channel...");
+			if (InstallChannelQuick(0x0001000248414241LL, 0, 0) < 0) return -1;
 		}
-		else if (buttons & WPAD_BUTTON_B) {
-			if (rev_HAAA && rev_HAAA < 3) {
-				printf("It doesn't seem like you need this.\n"
-						"(HAAA title version %u < 3)\n", rev_HAAA);
-				return 0;
-			}
-
-			puts("Initializing network...");
-			ret = network_init();
-			if (ret < 0) {
-				puts("Failed to initialize network!");
-				return ret;
-			}
-			printf("Initialized network. Wii IP Address: %s\n", PrintIPAddress());
-
-			puts("Downloading title metadata...");
-			ret = DownloadTitleMeta(id_HAAA, -1, &HAAA);
-			if (ret < 0) {
-				printf("Failed! (%i)\n%s\n", ret, GetLastDownloadError());
-				return ret;
-			}
-
-			puts("\nInstalling...");
-			ret = InstallTitle(&HAAA, true);
-			FreeTitle(&HAAA);
-			if (ret < 0) {
-				printf("Failed! (%i)\n%s\n", ret, GetLastDownloadError());
-				return ret;
-			}
-			puts("\n\x1b[42mDone!\x1b[40m");
-			break;
-		}
-		else if (buttons & WPAD_BUTTON_HOME)
-			return 0;
-
-		VIDEO_WaitVSync();
 	}
 
 	return 0;

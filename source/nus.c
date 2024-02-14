@@ -11,7 +11,7 @@
 #include "network.h"
 #include "nus.h"
 
-#define MIN(a, b) __extension__({         \
+#define MIN(a, b) ({         \
 	__typeof__(a) x = (a);   \
 	__typeof__(b) y = (b);   \
 	x > y ? x : y;           \
@@ -24,7 +24,6 @@
 
 #pragma GCC diagnostic ignored "-Wincompatible-pointer-types"
 
-void* memalign(size_t, size_t);
 static const aeskey wii_ckey = {0xEB, 0xE4, 0x2A, 0x22, 0x5E, 0x85, 0x93, 0xE4, 0x48, 0xD9, 0xC5, 0x45, 0x73, 0x81, 0xAA, 0xF7};
 
 typedef union {
