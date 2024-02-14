@@ -167,7 +167,7 @@ int main() {
 		if (vwii) puts("[*] Please use vWii decaffeinator for this...");
 		else {
 			puts("[+] Installing Wii Shop Channel...");
-			if (InstallChannelQuick(0x0001000248414241LL, 0, 0) < 0) return -1;
+			if (InstallChannelQuick(0x0001000248414200LL | regoinLetter == 'K' ? 'K' : 'A', 0, 0) < 0) return -1;
 		}
 	}
 
