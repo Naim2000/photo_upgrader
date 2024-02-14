@@ -111,7 +111,7 @@ int main() {
 	};
 
 	puts(
-		"\"wiiscu-next\" by thepikachugamer\n"
+		"System Channel Restorer by thepikachugamer\n"
 		"This is a mix of photo_upgrader and cleartool\n"
 	);
 
@@ -124,9 +124,18 @@ int main() {
 	initpads();
 	ISFS_Initialize();
 
+	struct Title sm = {};
+	if (!GetInstalledTitle(0x100000002LL, &sm)) {
+		uint16_t sm_rev = sm.tmd->title_version;
+		FreeTitle(&sm);
+		if (!(sm_rev & 0x1000) && !vwii)
+			puts("\x1b[30;1mYou seem to be on a normal Wii. There isn't a lot to do here...\x1b[39m");
+
+	}
+
 	const char regionLetter = GetSystemRegionLetter();
 	if (!regionLetter) {
-		puts("failed to identify system region (!?)");
+		puts("Failed to identify system region (!?)");
 		return -1;
 	}
 
@@ -167,7 +176,7 @@ int main() {
 		if (vwii) puts("[*] Please use vWii decaffeinator for this...");
 		else {
 			puts("[+] Installing Wii Shop Channel...");
-			if (InstallChannelQuick(0x0001000248414200LL | regoinLetter == 'K' ? 'K' : 'A', 0, 0) < 0) return -1;
+			if (InstallChannelQuick(0x0001000248414200LL | regionLetter == 'K' ? 'K' : 'A', 0, 0) < 0) return -1;
 		}
 	}
 
