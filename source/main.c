@@ -15,40 +15,70 @@
 [[gnu::weak, gnu::format(printf, 1, 2)]]
 void OSReport(const char* fmt, ...) {}
 
-struct option {
-	const char* name;
-	bool selected;
+typedef enum {
+	Wii  = 0x1,
+	vWii = 0x2,
+	Mini = 0x4,
+
+	All = (Wii | vWii | Mini),
+	Decaffeinator_Only = (Wii | Mini),
+} ConsoleType;
+
+enum ChannelFlags {
+	/* Just download this title ID. */
+	RegionFree		= 0x00,
+
+	/* Fill in the last byte with the system's region. */
+	RegionSpecific	= 0x01,
+
+	/* Fill in the last byte with A, or K if the system is Korean. */
+	RegionFreeAndKR = 0x02,
+
+	/* Will only be available for Japanese systems. */
+	JPonly			= 0x04,
+
+	/* Will not be available on Korean systems. */
+	NoKRVersion		= 0x08,
 };
 
-[[gnu::destructor]]
-void leave(bool now) {
-	network_deinit();
-	ISFS_Deinitialize();
+static ConsoleType ThisConsole = Wii;
 
-	if (now) return;
-	printf("\nPress HOME/START to return to loader.");
-	for (;;) {
-		scanpads();
-		if (buttons_down(WPAD_BUTTON_HOME))
-			break;
+typedef struct {
+	const char* name;
+	const char* desc;
+	int64_t titleID;
+	enum ChannelFlags flags;
+	ConsoleType allowed;
+
+	int64_t titleID_new;
+	int vWii_IOS;
+	bool selected;
+} Channel;
+
+static const char* strConsoleType(ConsoleType con) {
+	switch (con) {
+		case Wii : return "Wii";
+		case vWii: return "vWii (Wii U)";
+		case Mini: return "Wii Mini";
 	}
-	WPAD_Shutdown();
+
+	return "?";
 }
 
-static bool SelectOptionsMenu(struct option options[]) {
-	int cnt = 0, index = 0, curX = 0, curY = 0;
-	while (options[++cnt].name)
-		;
+static bool SelectChannels(Channel* channels[], int cnt) {
+	int index = 0, curX = 0, curY = 0;
 
 	CON_GetPosition(&curX, &curY);
 
 	for (;;) {
-		struct option* opt = options + index;
+		Channel* ch = channels[index];
 
-		printf("\x1b[%i;%iH", curY, curX);
+		printf("\x1b[%i;0H", curY);
 		for (int i = 0; i < cnt; i++)
 			printf("%s%s	%s\x1b[40m\x1b[39m\n", i == index? ">>" : "  ",
-				   options[i].selected? "\x1b[47;1m\x1b[30m" : "", options[i].name);
+				   channels[i]->selected? "\x1b[47;1m\x1b[30m" : "", channels[i]->name);
+
+		printf("\n\x1b[0J%s", ch->desc ? ch->desc : "no description");
 
 		for (;;) {
 			scanpads();
@@ -63,34 +93,34 @@ static bool SelectOptionsMenu(struct option options[]) {
 				break;
 			}
 
-			else if (buttons & WPAD_BUTTON_A) { opt->selected ^= true; break; }
+			else if (buttons & WPAD_BUTTON_A) { ch->selected ^= true; break; }
 			else if (buttons & WPAD_BUTTON_PLUS) return true;
 			else if (buttons & (WPAD_BUTTON_B | WPAD_BUTTON_HOME)) return false;
 		}
 	}
 }
 
-static int InstallChannelQuick(uint64_t titleID, uint64_t newTID, int32_t newIOS) {
+static int InstallChannel(Channel* ch) {
 	struct Title title = {};
 
-	printf("	>> Downloading %016llx metadata...\n", titleID);
-	int ret = DownloadTitleMeta(titleID, -1, &title);
+	printf("	>> Downloading %016llx metadata...\n", ch->titleID);
+	int ret = DownloadTitleMeta(ch->titleID, -1, &title);
 	if (ret < 0) {
 		printf("failed! (%i)\n", ret);
 		return ret;
 	}
 
-	if (newTID) {
-		ChangeTitleID(&title, newTID);
+	if (ch->titleID_new) {
+		ChangeTitleID(&title, ch->titleID_new);
 		Fakesign(&title);
 	}
-	if (newIOS) {
-		title.tmd->sys_version=0x1LL<<32 | newIOS;
+	if (ch->vWii_IOS && ThisConsole == vWii) {
+		title.tmd->sys_version=0x1LL<<32 | ch->vWii_IOS;
 		Fakesign(&title);
 	}
 
-	printf("	>> Installing %016llx...\n", titleID);
-	ret = InstallTitle(&title, true);
+	printf("	>> Installing %016llx...\n", ch->titleID);
+	ret = InstallTitle(&title, ch->titleID >> 32 != 0x1); //lazy fix
 	FreeTitle(&title);
 	if (ret < 0) {
 		printf("failed! (%i)\n", ret);
@@ -113,27 +143,108 @@ const char GetSystemRegionLetter(void) {
 	return 0;
 }
 
+static const char* strRegionLetter(int c) {
+	switch (c) {
+		case 'J': return "Japan (NTSC-J)";
+		case 'E': return "USA (NTSC-U)";
+		case 'P': return "Europe (PAL)";
+		case 'K': return "Korean (NTSC-K)";
+	}
+
+	return "Unknown (!?)";
+}
+
+static Channel channels[] = {
+	{	"EULA",
+
+		"Often missing because people don't complete their region changes.\n"
+		"This will stand out if the User Agreements button asks for a\n"
+		"Wii System Update.",
+
+		0x0001000848414C00, RegionSpecific, All	},
+
+	{	"Region Select",
+
+		"This hidden channel is launched by apps like Mario Kart Wii and\n"
+		"the Everybody Votes Chanel.\n\n"
+
+		"And somehow not the Forecast Channel, but whatever.",
+		0x0001000848414B00, RegionSpecific, Decaffeinator_Only	},
+
+	{	"Set Personal Data",
+
+		"This hidden channel is only used by some Japanese-exclusive\n"
+		"channels, namely the Digicam Print Channel and Demae Channel.\n\n"
+
+		"This won't work very well with the WiiLink services.\n",
+		0x000100084843434A, JPonly, All	},
+
+	{	"Mii Channel (Wii version)",
+
+		"This version of the Mii Channel comes with features removed\n"
+		"from the vWii version, specifically the Wii Remote transfer\n"
+		"and sending Miis to Wii friends.\n\n"
+
+		"\x1b[30;1m(are there any more? i forgot...)\x1b[39m",
+		0x0001000248414341, RegionFree, vWii	},
+
+	{	"Photo Channel 1.0",
+
+		"Please note that this version does not support SDHC (>2GB) cards.",
+		0x0001000248414141, NoKRVersion, All	},
+
+	{	"Photo Channel 1.1b (Hidden Channel)",
+
+		"This hidden channel is launched by the Wii menu when it detects\n"
+		"the Photo Channel 1.1 stub (00010000-HAZA) on the system,\n"
+		"i.e. you downloaded it from the Wii Shop Channel.",
+		0x0001000248415900, RegionFreeAndKR, Wii	},
+
+	{	"Photo Channel 1.1b (photo_upgrader style)",
+
+		"This is the hidden channel with it's title ID changed to HAAA,\n"
+		"replacing Photo Channel 1.0 in the process.\n\n"
+
+		"This is the basis of photo_upgrader.",
+		0x0001000248415900, RegionFreeAndKR, All, 0x0001000248414141, 58	},
+
+	{	"Wii Shop Channel",
+
+		"Install this if the shop is bugging you to update.",
+		0x0001000248414200, RegionFreeAndKR, Decaffeinator_Only	},
+
+	{	"IOS62",
+
+		"Used by the Wii U Transfer Tool. If your Wii Shop Channel is not updated,\n"
+		"you likely need this as well.",
+		0x0000000100000000 | 62, RegionFree, Wii	},
+
+	{	"Internet Channel",
+
+		NULL,
+		0x0001000148414400, RegionSpecific | NoKRVersion, All	},
+
+	{	"IOS58",
+
+		"The only part of the 4.3 update that mattered.\n"
+		"If you do not already have this, re-install the Homebrew Channel\n"
+		"to make it use IOS58.\n\n"
+
+		"Re-launching the HackMii Installer: https://wii.hacks.guide/hackmii",
+		0x0000000100000000 | 58, RegionFree, Wii	},
+};
+#define NBR_CHANNELS (sizeof(channels) / sizeof(Channel))
+
 int main() {
-	static enum { Wii, vWii, Mini } consoleType;
-
-	static struct option opts[] = {
-		{"End-user License Agreement App"},
-		{"Region Select App"},
-		{"Mii Channel (Wii version)"},
-		{"Photo Channel 1.1b"},
-		{"Wii Shop Channel (!?)"},
-		{}
-	};
-
 	puts(
-		"System Channel Restorer by thepikachugamer\n"
+		"Wii System Channel Restorer by thepikachugamer\n"
 		"This is a mix of photo_upgrader and cleartool\n"
 	);
 
 	if (patchIOS(false) < 0) {
 		puts("Failed to apply IOS patches...!");
 		sleep(2);
-		leave(true);
+		return 0;
 	}
 
 	initpads();
@@ -142,70 +253,68 @@ int main() {
 	const char regionLetter = GetSystemRegionLetter();
 	if (!regionLetter) {
 		puts("Failed to identify system region (!?)");
-		return -1;
+		goto exit;
 	}
 
 	uint32_t x = 0;
-	struct Title sm = {};
 
-	ES_GetTitleContentsCount(0x100000200LL, &x);
-	if (x) {
-		puts("This seems to be a \x1b[34mvWii\x1b[39m (BC-NAND is present)\n");
-		consoleType = vWii;
+	if (!ES_GetTitleContentsCount(0x100000200LL, &x) && x) {
+		ThisConsole = vWii;
 	}
-	else if (!GetInstalledTitle(0x100000002LL, &sm)) {
-		uint16_t sm_rev = sm.tmd->title_version;
-		FreeTitle(&sm);
-		if (sm_rev & 0x1000)
-			consoleType = Mini;
-		else
-			puts("\x1b[30;1mYou seem to be on a normal Wii. There isn't a lot to do here...\x1b[39m");
+	else {
+		struct Title sm = {};
+		if (!GetInstalledTitle(0x100000002LL, &sm)) {
+			uint16_t sm_rev = sm.tmd->title_version;
+			FreeTitle(&sm);
+			if (sm_rev & 0x1000)
+				ThisConsole = Mini;
+		}
 	}
 
-
-
+	printf("Console region: %-24s    Console Type: %s\n\n", strRegionLetter(regionLetter), strConsoleType(ThisConsole));
 
 	if (network_init() < 0) {
 		puts("Failed to initialize network..!");
-		return -2;
+		goto exit;;
 	}
 
 	puts(
 		"Select the channels you would like to restore.\n"
 		"Press A to toggle an option. Press +/START to begin.\n"
-		"Press B to cancel." );
+		"Press B to cancel.\n" );
 
-	if (!SelectOptionsMenu(opts)) return 0;
+	int i = 0;
+	Channel* allowedChannels[NBR_CHANNELS] = {};
+	for (Channel* ch = channels; ch < channels + NBR_CHANNELS; ch++) {
+		if (!(ch->allowed & ThisConsole)) continue;
+
+		if ((ch->flags & JPonly) && regionLetter != 'J') continue;
+		else if ((ch->flags & NoKRVersion) && regionLetter == 'K') continue;
+
+		if (ch->flags & RegionSpecific) ch->titleID |= regionLetter;
+		else if (ch->flags & RegionFreeAndKR) ch->titleID |= (regionLetter == 'K') ? 'K' : 'A';
+		allowedChannels[i++] = ch;
+
+	}
+
+	if (!SelectChannels(allowedChannels, i)) goto exit;
 
 	putchar('\n');
 
-	if (opts[0].selected) {
-		puts("[+] Installing EULA...");
-		if (InstallChannelQuick(0x0001000848414C00LL | regionLetter, 0, 0) < 0) return -1;
-	}
-	if (opts[1].selected) {
-		if (consoleType == vWii) puts("[*] Please use vWii decaffeinator for this...");
-		else {
-			puts("[+] Installing Region select...");
-			if (InstallChannelQuick(0x0001000848414B00LL | regionLetter, 0, 0) < 0) return -1;
-		}
-	}
-	if (opts[2].selected) {
-		puts("[+] Installing standard Mii Channel...");
-		if (InstallChannelQuick(0x0001000248414341LL, 0, 0) < 0) return -1;
-	}
-	if (opts[3].selected) {
-		puts("[+] Installing Photo Channel 1.1b...");
-		if (InstallChannelQuick(0x0001000248415941LL, 0x0001000248414141LL, consoleType == vWii? 58 : 61) < 0) return -1;
-	}
-	if (opts[4].selected) {
-		if (consoleType == vWii) puts("[*] Please use vWii decaffeinator for this...");
-		else {
-			puts("[+] Installing Wii Shop Channel...");
-			if (InstallChannelQuick(0x0001000248414200LL | (regionLetter == 'K') ? 'K' : 'A', 0, 0) < 0) return -1;
-		}
+	// what a mess of code this thing is
+	for (Channel* ch = channels; ch < channels + NBR_CHANNELS; ch++) {
+		if (!ch->selected) continue;
+
+		printf("[*] Installing %s...\n", ch->name);
+		InstallChannel(ch);
 	}
 
+exit:
+	network_deinit();
+	ISFS_Deinitialize();
+	puts("\nPress HOME to exit.");
+	wait_button(WPAD_BUTTON_HOME);
+	WPAD_Shutdown();
 	return 0;
 }
 

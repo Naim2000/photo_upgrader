@@ -26,6 +26,7 @@
 
 static const aeskey wii_ckey = {0xEB, 0xE4, 0x2A, 0x22, 0x5E, 0x85, 0x93, 0xE4, 0x48, 0xD9, 0xC5, 0x45, 0x73, 0x81, 0xAA, 0xF7};
 
+
 typedef union {
 	uint16_t index;
 	int64_t tid;
@@ -33,6 +34,12 @@ typedef union {
 
 	aeskey full;
 } aesiv;
+
+typedef struct {
+	uint32_t cid;
+	uint32_t _padding;
+	sha1 hash;
+} SharedContent;
 
 /*
 static size_t ES_DownloadContentData(void* buffer, size_t size, size_t nmemb, void* userp) {
@@ -129,7 +136,7 @@ int DownloadTitleMeta(int64_t titleID, int titleRev, struct Title* title) {
 
 	sprintf(url, "%s/ccs/download/%016llx/", NUS_SERVER, titleID);
 
-	if (titleRev > 0 && !(titleRev & 0xFFFF0000))
+	if (titleRev > 0)
 		sprintf(strrchr(url, '/'), "/tmd.%hu", (uint16_t)titleRev);
 	else
 		strcpy (strrchr(url, '/'), "/tmd");
@@ -180,6 +187,9 @@ static int PurgeTitle(int64_t titleid) {
 	uint32_t viewcnt = 0;
 	tikview* views, view ATTRIBUTE_ALIGN(0x20);
 
+	ES_DeleteTitleContent(titleid);
+	ES_DeleteTitle(titleid);
+
 	ret = ES_GetNumTicketViews(titleid, &viewcnt);
 	if (ret < 0)
 		return ret;
@@ -199,33 +209,41 @@ static int PurgeTitle(int64_t titleid) {
 		view = views[i];
 		ret = ES_DeleteTicket(&view);
 		if (ret < 0)
-			return ret;
+			break;
 	}
 	free(views);
 
-	ES_DeleteTitleContent(titleid);
-	return ES_DeleteTitle(titleid);
+	return ret;
 }
 
 int InstallTitle(struct Title* title, bool purge) {
 	int ret;
 	signed_blob* s_buffer = NULL;
 	signed_blob* certs = NULL;
-	size_t certs_size;
+	size_t certs_size = 0;
+	SharedContent* sharedContents = NULL;
+	int sharedContentsCount = 0;
+
 	fstats isfs_fstats ATTRIBUTE_ALIGN(0x20) = {};
 
+	/* TODO: build the cert chain from tmd/ticket if it was downloaded? */
 	int fd = ret = ISFS_Open("/sys/cert.sys", ISFS_OPEN_READ);
 	if (ret < 0)
 		return ret;
 
 	ret = ISFS_GetFileStats(fd, &isfs_fstats);
-	if (ret < 0)
+	if (ret < 0) {
+		ISFS_Close(fd);
 		return ret;
+	}
 
 	certs_size = isfs_fstats.file_length;
 	certs = alloc(certs_size);
-	if (!certs)
-		return -ENOMEM;
+	if (!certs) {
+		ISFS_Close(fd);
+		ret = -ENOMEM;
+		goto finish;
+	}
 
 	ret = ISFS_Read(fd, certs, certs_size);
 	ISFS_Close(fd);
@@ -237,6 +255,29 @@ int InstallTitle(struct Title* title, bool purge) {
 		if (ret < 0)
 			goto finish;
 	}
+
+	fd = ret = ISFS_Open("/shared1/content.map", ISFS_OPEN_READ);
+	if (ret < 0)
+		goto finish;
+
+	ret = ISFS_GetFileStats(fd, &isfs_fstats);
+	if (ret < 0) {
+		ISFS_Close(fd);
+		goto finish;
+	}
+
+	sharedContentsCount =  isfs_fstats.file_length / sizeof(SharedContent);
+	sharedContents = alloc(isfs_fstats.file_length);
+	if (!sharedContents) {
+		ISFS_Close(fd);
+		ret = -ENOMEM;
+		goto finish;
+	}
+
+	ret = ISFS_Read(fd, sharedContents, isfs_fstats.file_length);
+	ISFS_Close(fd);
+	if (ret < 0)
+		goto finish;
 
 	size_t
 		tiksize = STD_SIGNED_TIK_SIZE,
@@ -266,8 +307,15 @@ int InstallTitle(struct Title* title, bool purge) {
 		tmd_content* content = title->tmd->contents + i;
 		char url[100];
 
-		if (content->type == 0x8001 && title->local)
-			continue;
+		if ((content->type & 0x8000)) {
+			if (title->local) continue;
+
+			bool found = false;
+			for (SharedContent* s_content = sharedContents; s_content < sharedContents + sharedContentsCount; s_content++)
+				if (memcmp(s_content->hash, content->hash, sizeof(sha1)) == 0) { found = true; break; }
+
+			if (found) continue;
+		}
 
 		int cfd = ret = ES_AddContentStart(title->tmd->title_id, content->cid);
 		if (ret < 0)
