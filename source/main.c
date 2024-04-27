@@ -161,7 +161,7 @@ static Channel channels[] = {
 		"This will stand out if the User Agreements button asks for a\n"
 		"Wii System Update.",
 
-		0x0001000848414C00, RegionSpecific, All	},
+		0x0001000848414B00, RegionSpecific, All	},
 
 	{	"Region Select",
 
@@ -169,7 +169,7 @@ static Channel channels[] = {
 		"the Everybody Votes Chanel.\n\n"
 
 		"And somehow not the Forecast Channel, but whatever.",
-		0x0001000848414B00, RegionSpecific, Decaffeinator_Only	},
+		0x0001000848414C00, RegionSpecific, Decaffeinator_Only	},
 
 	{	"Set Personal Data",
 
@@ -221,7 +221,8 @@ static Channel channels[] = {
 
 	{	"Internet Channel",
 
-		NULL,
+		"Official Wii Internet browser, powered by Opera.\n"
+		"Does not support modern encryption. Won't work with a lot of sites.",
 		0x0001000148414400, RegionSpecific | NoKRVersion, All	},
 
 	{	"IOS58",
@@ -238,14 +239,11 @@ static Channel channels[] = {
 int main() {
 	puts(
 		"Wii System Channel Restorer by thepikachugamer\n"
-		"This is a mix of photo_upgrader and cleartool\n"
+	//	"This is a mix of photo_upgrader and cleartool\n"
 	);
 
-	if (patchIOS(false) < 0) {
-		puts("Failed to apply IOS patches...!");
-		sleep(2);
-		return 0;
-	}
+	if (patchIOS(false) < 0)
+		puts("(failed to apply IOS patches..?)");
 
 	initpads();
 	ISFS_Initialize();
@@ -266,7 +264,7 @@ int main() {
 		if (!GetInstalledTitle(0x100000002LL, &sm)) {
 			uint16_t sm_rev = sm.tmd->title_version;
 			FreeTitle(&sm);
-			if (sm_rev & 0x1000)
+			if ((sm_rev & ~0x0001) == 0x1200)
 				ThisConsole = Mini;
 		}
 	}
@@ -274,7 +272,7 @@ int main() {
 	printf("Console region: %-24s    Console Type: %s\n\n", strRegionLetter(regionLetter), strConsoleType(ThisConsole));
 
 	if (network_init() < 0) {
-		puts("Failed to initialize network..!");
+		puts("Failed to initialize network!");
 		goto exit;;
 	}
 
