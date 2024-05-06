@@ -158,7 +158,7 @@ static Channel channels[] = {
 	{	"EULA",
 
 		"Often missing because people don't complete their region changes.\n"
-		"This will stand out if the User Agreements button asks for a\n"
+		"This will stand out if the User Agreements button demands for a\n"
 		"Wii System Update.",
 
 		0x0001000848414B00, RegionSpecific, All	},
@@ -166,9 +166,10 @@ static Channel channels[] = {
 	{	"Region Select",
 
 		"This hidden channel is launched by apps like Mario Kart Wii and\n"
-		"the Everybody Votes Chanel.\n\n"
+		"the Everybody Votes Channel. And somehow not in the Forecast\n"
+		"Channel, but whatever.\n\n"
 
-		"And somehow not the Forecast Channel, but whatever.",
+		"Ideal if your console was region changed.",
 		0x0001000848414C00, RegionSpecific, Decaffeinator_Only	},
 
 	{	"Set Personal Data",
@@ -179,13 +180,19 @@ static Channel channels[] = {
 		"This won't work very well with the WiiLink services.\n",
 		0x000100084843434A, JPonly, All	},
 
+	{	"Mii Channel",
+
+		"Stock version of the Mii Channel.\n\n"
+
+		"Will not remove your Miis when (re)installed,\n"
+		"they are stored elsewhere.\n",
+		0x0001000248414341, RegionFree, Wii | Mini	},
+
 	{	"Mii Channel (Wii version)",
 
 		"This version of the Mii Channel comes with features removed\n"
-		"from the vWii version, specifically the Wii Remote transfer\n"
-		"and sending Miis to Wii friends.\n\n"
-
-		"\x1b[30;1m(are there any more? i forgot...)\x1b[39m",
+		"from the vWii version, specifically sending Miis to\n"
+		"Wii remotes, Wii friends and the Mii Parade.\n",
 		0x0001000248414341, RegionFree, vWii	},
 
 	{	"Photo Channel 1.0",
@@ -193,7 +200,7 @@ static Channel channels[] = {
 		"Please note that this version does not support SDHC (>2GB) cards.",
 		0x0001000248414141, NoKRVersion, All	},
 
-	{	"Photo Channel 1.1b (Hidden Channel)",
+	{	"Photo Channel 1.1b (Update)",
 
 		"This hidden channel is launched by the Wii menu when it detects\n"
 		"the Photo Channel 1.1 stub (00010000-HAZA) on the system,\n"
@@ -203,9 +210,8 @@ static Channel channels[] = {
 	{	"Photo Channel 1.1b (photo_upgrader style)",
 
 		"This is the hidden channel with it's title ID changed to HAAA,\n"
-		"replacing Photo Channel 1.0 in the process.\n\n"
+		"replacing Photo Channel 1.0 in the process.\n"
 
-		"This is the basis of photo_upgrader.",
 		0x0001000248415900, RegionFreeAndKR, All, 0x0001000248414141, 58	},
 
 	{	"Wii Shop Channel",
@@ -213,17 +219,18 @@ static Channel channels[] = {
 		"Install this if the shop is bugging you to update.",
 		0x0001000248414200, RegionFreeAndKR, Decaffeinator_Only	},
 
-	{	"IOS62",
-
-		"Used by the Wii U Transfer Tool. If your Wii Shop Channel is not updated,\n"
-		"you likely need this as well.",
-		0x0000000100000000 | 62, RegionFree, Wii	},
 
 	{	"Internet Channel",
 
 		"Official Wii Internet browser, powered by Opera.\n"
 		"Does not support modern encryption. Won't work with a lot of sites.",
 		0x0001000148414400, RegionSpecific | NoKRVersion, All	},
+
+	{	"IOS62",
+
+		"Used by the Wii U Transfer Tool. If your Wii Shop Channel is not updated,\n"
+		"you likely need this as well.",
+		0x0000000100000000 | 62, RegionFree, Wii	},
 
 	{	"IOS58",
 
@@ -310,7 +317,7 @@ int main() {
 exit:
 	network_deinit();
 	ISFS_Deinitialize();
-	puts("\nPress HOME to exit.");
+	puts("\n\nPress HOME to exit.");
 	wait_button(WPAD_BUTTON_HOME);
 	WPAD_Shutdown();
 	return 0;
