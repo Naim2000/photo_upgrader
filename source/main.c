@@ -155,91 +155,128 @@ static const char* strRegionLetter(int c) {
 }
 
 static Channel channels[] = {
-	{	"EULA",
+	{
+		"EULA",
 
 		"Often missing because people don't complete their region changes.\n"
 		"This will stand out if the User Agreements button demands for a\n"
 		"Wii System Update.",
 
-		0x0001000848414B00, RegionSpecific, All	},
+		0x0001000848414B00, RegionSpecific, All
+	},
 
-	{	"Region Select",
+	{
+		"Region Select",
 
 		"This hidden channel is launched by apps like Mario Kart Wii and\n"
 		"the Everybody Votes Channel. And somehow not in the Forecast\n"
 		"Channel, but whatever.\n\n"
 
 		"Ideal if your console was region changed.",
-		0x0001000848414C00, RegionSpecific, Decaffeinator_Only	},
+		0x0001000848414C00, RegionSpecific, Decaffeinator_Only
+	},
 
-	{	"Set Personal Data",
+	{
+		"Set Personal Data",
 
 		"This hidden channel is only used by some Japanese-exclusive\n"
 		"channels, namely the Digicam Print Channel and Demae Channel.\n\n"
 
 		"This won't work very well with the WiiLink services.\n",
-		0x000100084843434A, JPonly, All	},
+		0x000100084843434A, JPonly, All
+	},
 
-	{	"Mii Channel",
+	{
+		"Mii Channel",
 
 		"Stock version of the Mii Channel.\n\n"
 
 		"Will not remove your Miis when (re)installed,\n"
 		"they are stored elsewhere.\n",
-		0x0001000248414341, RegionFree, Wii | Mini	},
+		0x0001000248414341, RegionFree, Wii | Mini
+	},
 
-	{	"Mii Channel (Wii version)",
+	{
+		"Mii Channel (Wii version)",
 
 		"This version of the Mii Channel comes with features removed\n"
 		"from the vWii version, specifically sending Miis to\n"
-		"Wii remotes, Wii friends and the Mii Parade.\n",
-		0x0001000248414341, RegionFree, vWii	},
+		"Wii remotes, Wii friends and the Mii Parade.\n\n"
 
-	{	"Photo Channel 1.0",
+		"Installing this will also remove wuphax (if applicable.)",
+		0x0001000248414341, RegionFree, vWii
+	},
+
+	{
+		"Photo Channel 1.0",
 
 		"Please note that this version does not support SDHC (>2GB) cards.",
-		0x0001000248414141, NoKRVersion, All	},
+		0x0001000248414141, NoKRVersion, All
+	},
 
-	{	"Photo Channel 1.1b (Update)",
+	{
+		"Photo Channel 1.1b (Update)",
 
 		"This hidden channel is launched by the Wii menu when it detects\n"
 		"the Photo Channel 1.1 stub (00010000-HAZA) on the system,\n"
-		"i.e. you downloaded it from the Wii Shop Channel.",
-		0x0001000248415900, RegionFreeAndKR, Wii	},
+		"i.e. you downloaded it from the Wii Shop Channel.\n\n"
 
-	{	"Photo Channel 1.1b (photo_upgrader style)",
+		"See also: IOS61",
+		0x0001000248415900, RegionFreeAndKR, Wii
+	},
+
+	{
+		"Photo Channel 1.1b (photo_upgrader style)",
 
 		"This is the hidden channel with it's title ID changed to HAAA,\n"
-		"replacing Photo Channel 1.0 in the process.\n"
+		"replacing Photo Channel 1.0 in the process.\n",
 
-		0x0001000248415900, RegionFreeAndKR, All, 0x0001000248414141, 58	},
+		0x0001000248415900, RegionFreeAndKR, All, 0x0001000248414141, 58
+	},
 
-	{	"Wii Shop Channel",
+	{
+		"Wii Shop Channel",
 
-		"Install this if the shop is bugging you to update.",
-		0x0001000248414200, RegionFreeAndKR, Decaffeinator_Only	},
+		"Install this if the shop is bugging you to update.\n\n"
 
+		"See also: IOS61",
+		0x0001000248414200, RegionFreeAndKR, Decaffeinator_Only
+	},
 
-	{	"Internet Channel",
+	{
+		"Internet Channel",
 
 		"Official Wii Internet browser, powered by Opera.\n"
 		"Does not support modern encryption. Won't work with a lot of sites.",
-		0x0001000148414400, RegionSpecific | NoKRVersion, All	},
+		0x0001000148414400, RegionSpecific | NoKRVersion, All
+	},
 
-	{	"IOS62",
-
-		"Used by the Wii U Transfer Tool. If your Wii Shop Channel is not updated,\n"
-		"you likely need this as well.",
-		0x0000000100000000 | 62, RegionFree, Wii	},
-
-	{	"IOS58",
+	{
+		"IOS58",
 
 		"The only part of the 4.3 update that mattered.\n"
 		"If you do not already have this, re-install the Homebrew Channel\n"
 		"to make it use IOS58.\n\n"
 
 		"Re-launching the HackMii Installer: https://wii.hacks.guide/hackmii",
-		0x0000000100000000 | 58, RegionFree, Wii	},
+		0x0000000100000000 | 58, RegionFree, Wii
+	},
+
+	{
+		"IOS61",
+
+		"Released in 4.0.\n"
+		"Used by the latest Wii Shop Channel and Photo Channel 1.1.",
+		0x0000000100000000 | 61, RegionFree, Wii
+	},
+
+	{
+		"IOS62",
+
+		"Used by the Wii U Transfer Tool. If your Wii Shop Channel is not updated,\n"
+		"you likely need this as well.",
+		0x0000000100000000 | 62, RegionFree, Wii
+	},
 };
 #define NBR_CHANNELS (sizeof(channels) / sizeof(Channel))
 
