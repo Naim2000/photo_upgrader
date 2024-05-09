@@ -17,15 +17,11 @@
 	x > y ? x : y;           \
 })
 
-#define roundup(val, by) \
-	(val + (by - 1)) & ~(by - 1)
-
 #define NUS_SERVER "nus.cdn.shop.wii.com"
 
 #pragma GCC diagnostic ignored "-Wincompatible-pointer-types"
 
-void* memalign(size_t, size_t);
-static const aeskey wii_ckey = {0xEB, 0xE4, 0x2A, 0x22, 0x5E, 0x85, 0x93, 0xE4, 0x48, 0xD9, 0xC5, 0x45, 0x73, 0x81, 0xAA, 0xF7};
+static const aeskey WiiCommonKey = {0xEB, 0xE4, 0x2A, 0x22, 0x5E, 0x85, 0x93, 0xE4, 0x48, 0xD9, 0xC5, 0x45, 0x73, 0x81, 0xAA, 0xF7};
 
 typedef union {
 	uint16_t index;
@@ -56,32 +52,36 @@ static size_t ES_DownloadContentData(void* buffer, size_t size, size_t nmemb, vo
 }
 */
 
-static void* alloc(size_t size) { return aligned_alloc(0x20, roundup(size, 0x20)); } // Turns out memalign is fucked
+static void* alloc(size_t size) {
+	// Turns out memalign is fucked
+	return aligned_alloc(0x20, __builtin_align_up(size, 0x20));
+}
 
 int GetInstalledTitle(int64_t titleID, struct Title* title) {
 	int ret;
-	void* buffer = NULL;
+	signed_blob* s_tmd = NULL;
+	signed_blob* s_tik = NULL;
+	tmd* p_tmd         = NULL;
+	tik* p_tik         = NULL;
 
-	*title = (struct Title){};
+	memset(title, 0, sizeof(struct Title));
 
 	uint32_t tmd_size = 0;
 	ret = ES_GetStoredTMDSize(titleID, &tmd_size);
 	if (ret < 0 || !tmd_size)
 		goto error;
 
-	buffer = alloc(tmd_size);
-	if (!buffer) {
+	s_tmd = alloc(tmd_size);
+	if (!s_tmd) {
 		ret = -ENOMEM;
 		goto error;
 	}
 
-	ret = ES_GetStoredTMD(titleID, buffer, tmd_size);
+	ret = ES_GetStoredTMD(titleID, s_tmd, tmd_size);
 	if (ret < 0)
 		goto error;
 
-	title->s_tmd = buffer;
-	title->tmd_size = tmd_size;
-	title->tmd = SIGNATURE_PAYLOAD(title->s_tmd);
+	p_tmd = SIGNATURE_PAYLOAD(s_tmd);
 
 	char filepath[30];
 	sprintf(filepath, "/ticket/%08x/%08x.tik", (uint32_t)(titleID >> 32), (uint32_t)(titleID & 0xFFFFFFFF));
@@ -89,13 +89,13 @@ int GetInstalledTitle(int64_t titleID, struct Title* title) {
 	if (ret < 0)
 		goto error;
 
-	buffer = alloc(STD_SIGNED_TIK_SIZE);
-	if (!buffer) {
+	s_tik = alloc(STD_SIGNED_TIK_SIZE);
+	if (!s_tik) {
 		ret = -ENOMEM;
 		goto error;
 	}
 
-	ret = ISFS_Read(fd, buffer, STD_SIGNED_TIK_SIZE);
+	ret = ISFS_Read(fd, s_tik, STD_SIGNED_TIK_SIZE);
 	ISFS_Close(fd);
 
 	if (ret != STD_SIGNED_TIK_SIZE) {
@@ -103,65 +103,82 @@ int GetInstalledTitle(int64_t titleID, struct Title* title) {
 		goto error;
 	}
 
-	title->s_tik = buffer;
-	title->tik_size = STD_SIGNED_TIK_SIZE;
-	title->ticket = SIGNATURE_PAYLOAD(title->s_tik);
+	p_tik = SIGNATURE_PAYLOAD(s_tik);
 
 	mbedtls_aes_context aes = {};
 	aesiv iv = {};
 
-	iv.tid = title->ticket->titleid;
-	mbedtls_aes_setkey_dec(&aes, wii_ckey, sizeof(aeskey) * 8);
-	mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_DECRYPT, sizeof(aeskey), iv.full, title->ticket->cipher_title_key, title->key);
+	iv.tid = p_tik->titleid;
+	mbedtls_aes_setkey_dec(&aes, WiiCommonKey, sizeof(aeskey) * 8);
+	mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_DECRYPT, sizeof(aeskey), iv.full, p_tik->cipher_title_key, title->key);
+
+	title->s_tmd = s_tmd;
+	title->tmd_size = tmd_size;
+	title->tmd = p_tmd;
+
+	title->s_tik = s_tik;
+	title->tik_size = STD_SIGNED_TIK_SIZE;
+	title->ticket = p_tik;
 
 	title->id = titleID;
 	title->local = true;
 	return 0;
 
 error:
-	free(buffer);
+	free(s_tmd);
+	free(s_tik);
 	return ret;
 }
 
 int DownloadTitleMeta(int64_t titleID, int titleRev, struct Title* title) {
 	int ret;
-	char url[0x80];
-	blob tmd = {}, cetk = {};
+	char url[120];
+	blob b_tmd = {}, cetk = {};
+	tmd* p_tmd = NULL;
+	tik* p_tik = NULL;
 
-	sprintf(url, "%s/ccs/download/%016llx/", NUS_SERVER, titleID);
+	sprintf(url, "http://%s/ccs/download/%016llx/", NUS_SERVER, titleID);
 
-	if (titleRev > 0 && !(titleRev & 0xFFFF0000))
-		sprintf(strrchr(url, '/'), "/tmd.%hu", (uint16_t)titleRev);
-	else
-		strcpy (strrchr(url, '/'), "/tmd");
+	if (titleRev > 0) sprintf(strrchr(url, '/'), "/tmd.%hu", (uint16_t)titleRev);
+	else sprintf(strrchr(url, '/'), "/tmd");
 
-	ret = DownloadFile(url, DOWNLOAD_BLOB, &tmd, NULL);
+	ret = DownloadFile(url, DOWNLOAD_BLOB, &b_tmd, NULL);
 	if (ret < 0)
-		return ret;
+		goto error;
 
-	title->s_tmd = tmd.ptr;
-	title->tmd_size = tmd.size;
-	title->tmd = SIGNATURE_PAYLOAD(title->s_tmd);
+	p_tmd = SIGNATURE_PAYLOAD((signed_blob*)b_tmd.ptr);
 
 	sprintf(strrchr(url, '/'), "/cetk");
 	ret = DownloadFile(url, DOWNLOAD_BLOB, &cetk, NULL);
 	if (ret < 0)
-		return ret;
+		goto error;
 
-	title->s_tik = cetk.ptr;
-	title->tik_size = cetk.size;
-	title->ticket = SIGNATURE_PAYLOAD(title->s_tik);
+	p_tik = SIGNATURE_PAYLOAD((signed_blob*)cetk.ptr);
 
 	mbedtls_aes_context aes = {};
 	aesiv iv = {};
 
-	iv.tid = title->ticket->titleid;
-	mbedtls_aes_setkey_dec(&aes, wii_ckey, sizeof(aeskey) * 8);
-	mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_DECRYPT, sizeof(aeskey), iv.full, title->ticket->cipher_title_key, title->key);
+	iv.tid = p_tik->titleid;
+	mbedtls_aes_setkey_dec(&aes, WiiCommonKey, 128);
+	mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_DECRYPT, sizeof(aeskey), iv.full, p_tik->cipher_title_key, title->key);
+
+	title->s_tmd = b_tmd.ptr;
+	title->tmd_size = b_tmd.size;
+	title->tmd = p_tmd;
+
+	title->s_tik = cetk.ptr;
+	title->tik_size = cetk.size;
+	title->ticket = p_tik;
 
 	title->id = titleID;
 
 	return 0;
+
+error:
+	free(b_tmd.ptr);
+	free(cetk.ptr);
+
+	return ret;
 }
 
 void ChangeTitleID(struct Title* title, int64_t new) {
@@ -169,7 +186,7 @@ void ChangeTitleID(struct Title* title, int64_t new) {
 	aesiv iv = {};
 
 	iv.tid = new;
-	mbedtls_aes_setkey_enc(&aes, wii_ckey, sizeof(aeskey) * 8);
+	mbedtls_aes_setkey_enc(&aes, WiiCommonKey, sizeof(aeskey) * 8);
 	mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_ENCRYPT, sizeof(aeskey), iv.full, title->key, title->ticket->cipher_title_key);
 	title->tmd->title_id = new;
 
@@ -275,26 +292,16 @@ int InstallTitle(struct Title* title, bool purge) {
 			break;
 
 		if (title->local) {
-			/* ES DEVOPTAB!!!! LETS FUCKING GO!!! // <-- me when the ES_GetTitleID() fails
-			FILE* contentfp = fopen("es:%016llx/ID%08x", "rb");
-			if (!contentfp) {
-				perror("ES devoptab failed :((\n");
-				ret = -errno;
-				break;
-			}
-			*/
-
-			size_t align_csize = roundup(content->size, 0x10);
+			size_t align_csize = __builtin_align_up(content->size, 0x10);
 			void* buffer = alloc(align_csize);
 			if (!buffer) {
 				ret = -ENOMEM;
 				break;
 			}
 
-			memset(buffer + align_csize - 0x10, 0, 0x10);
-
 			sprintf(url /* is this guy serious */ , "/title/%08x/%08x/content/%08x.app",
-					(uint32_t)(title->id >> 32), (uint32_t)(title->id & 0xFFFFFFFF), content->cid);
+					TID_HI(title->id), TID_LO(title->id), content->cid);
+
 			fd = ret = ISFS_Open(url, ISFS_OPEN_READ);
 			if (ret < 0)
 				break;
@@ -306,7 +313,7 @@ int InstallTitle(struct Title* title, bool purge) {
 				break;
 
 			mbedtls_aes_context aes = {};
-			aesiv iv = { content->index };
+			aesiv iv = { .index = content->index };
 
 			mbedtls_aes_setkey_enc(&aes, title->key, sizeof(aeskey) * 8);
 			mbedtls_aes_crypt_cbc(&aes, MBEDTLS_AES_ENCRYPT, align_csize, iv.full, buffer, buffer);
@@ -387,7 +394,8 @@ bool Fakesign(struct Title* title) {
 }
 
 void FreeTitle(struct Title* title) {
-	if (!title) return;
+	if (!title || !title->id) return;
 	free(title->s_tmd);
 	free(title->s_tik);
+	memset(title, 0, sizeof(struct Title));
 }

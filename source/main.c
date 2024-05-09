@@ -12,9 +12,7 @@
 
 #define VERSION "1.1.0"
 
-#define INIT_STRUCT(v) v = (__typeof__(v)){}
-
-[[gnu::weak, gnu::format(printf, 1, 2)]]
+__attribute__((weak, format(printf, 1, 2)))
 void OSReport(const char* fmt, ...) {}
 
 int main() {
@@ -23,14 +21,12 @@ int main() {
 	static int64_t id_HAYA = 0x0001000248415941LL, id_HAAA = 0x0001000248414141LL;
 	struct Title HAYA = {}, HAAA = {};
 
-	printf(
-		"Photo Channel 1.1 Installer v" VERSION ", by thepikachugamer\n\n"
-	);
+	puts("Photo Channel 1.1 Installer v" VERSION ", by thepikachugamer\n");
 
 	if (patchIOS(false) < 0) {
 		puts("Failed to apply IOS patches...!");
-		sleep(2);
-		leave(true);
+		sleep(5);
+		return -1;
 	}
 
 	initpads();
@@ -44,7 +40,7 @@ int main() {
 		vwii = true;
 	}
 
-	if (CONF_GetRegion() == CONF_REGION_KR) {
+	else if (CONF_GetRegion() == CONF_REGION_KR) {
 		puts("This Wii seems to be Korean, using Korean photo channels.\n");
 		id_HAYA = (id_HAYA & ~0xFF) | 'K';
 	//	id_HAAA = (id_HAAA & ~0xFF) | 'K'; never actually existed? i'm stupid
@@ -55,7 +51,6 @@ int main() {
 	if (HAAA.id) {
 		rev_HAAA = HAAA.tmd->title_version;
 		FreeTitle(&HAAA);
-		INIT_STRUCT(HAAA);
 	}
 
 	printf(
@@ -73,10 +68,11 @@ int main() {
 			if (rev_HAAA > 2) {
 				printf("It doesn't seem like you need this.\n"
 					   "(HAAA title version %u > 2)\n", rev_HAAA);
-				return 0;
+				break;
 			}
 
-			printf("This will install the hidden Photo Channel 1.1\n"
+			printf(
+				"This will install the hidden Photo Channel 1.1\n"
 				 "title directly over Photo Channel 1.0.\n\n"
 
 				 "Is this OK?\n\n"
@@ -86,16 +82,18 @@ int main() {
 
 			wait_button(0);
 			if (!buttons_down(WPAD_BUTTON_PLUS))
-				return 0;
+				break;
 
 			puts("Getting title metadata...");
 			ret = GetInstalledTitle(id_HAYA, &HAYA);
-			if (ret < 0) {
-				puts("HAYA is not present, initializing network...");
+
+			if (ret < 0 || HAYA.tmd->title_version < 3) {
+				FreeTitle(&HAYA);
+				puts("HAYA is not present or outdated. Initializing network...");
 				ret = network_init();
 				if (ret < 0) {
 					puts("Failed to initialize network!");
-					return ret;
+					break;
 				}
 				printf("Initialized network. Wii IP Address: %s\n", PrintIPAddress());
 
@@ -103,14 +101,14 @@ int main() {
 				ret = DownloadTitleMeta(id_HAYA, -1, &HAYA);
 				if (ret < 0) {
 					printf("Failed! (%i)\n%s\n", ret, GetLastDownloadError());
-					return ret;
+					break;
 				}
 			}
 			puts("Changing title ID...");
 			ChangeTitleID(&HAYA, id_HAAA);
 
 			if (vwii)
-				HAYA.tmd->sys_version = 1LL << 32 | 58;
+				HAYA.tmd->sys_version = IOS(58);
 
 			Fakesign(&HAYA);
 
@@ -119,7 +117,7 @@ int main() {
 			FreeTitle(&HAYA);
 			if (ret < 0) {
 				printf("Failed! (%i)\n%s\n", ret, GetLastDownloadError());
-				return ret;
+				break;
 			}
 			puts("\n\x1b[42mDone!\x1b[40m");
 			break;
@@ -128,14 +126,14 @@ int main() {
 			if (rev_HAAA && rev_HAAA < 3) {
 				printf("It doesn't seem like you need this.\n"
 						"(HAAA title version %u < 3)\n", rev_HAAA);
-				return 0;
+				break;
 			}
 
 			puts("Initializing network...");
 			ret = network_init();
 			if (ret < 0) {
 				puts("Failed to initialize network!");
-				return ret;
+				break;
 			}
 			printf("Initialized network. Wii IP Address: %s\n", PrintIPAddress());
 
@@ -143,7 +141,7 @@ int main() {
 			ret = DownloadTitleMeta(id_HAAA, -1, &HAAA);
 			if (ret < 0) {
 				printf("Failed! (%i)\n%s\n", ret, GetLastDownloadError());
-				return ret;
+				break;
 			}
 
 			puts("\nInstalling...");
@@ -151,7 +149,7 @@ int main() {
 			FreeTitle(&HAAA);
 			if (ret < 0) {
 				printf("Failed! (%i)\n%s\n", ret, GetLastDownloadError());
-				return ret;
+				break;
 			}
 			puts("\n\x1b[42mDone!\x1b[40m");
 			break;
@@ -162,20 +160,14 @@ int main() {
 		VIDEO_WaitVSync();
 	}
 
-	return 0;
-}
-
-[[gnu::destructor]]
-void leave(bool now) {
-	network_deinit();
-	ISFS_Deinitialize();
-
-	if (now) return;
 	printf("\nPress HOME/START to return to loader.");
 	for (;;) {
 		scanpads();
 		if (buttons_down(WPAD_BUTTON_HOME))
 			break;
 	}
+	network_deinit();
+	ISFS_Deinitialize();
 	WPAD_Shutdown();
+	return ret;
 }

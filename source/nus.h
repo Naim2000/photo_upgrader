@@ -1,6 +1,10 @@
 #include <ogc/es.h>
 #include <stdint.h>
 
+#define TID_LO(X) ((uint32_t)(X & -1))
+#define TID_HI(X) ((uint32_t)(X >> 32))
+#define IOS(A) (0x0000000100000000LL | A)
+
 struct Title {
 	int64_t id;
 	bool local;
