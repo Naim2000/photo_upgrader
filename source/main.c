@@ -10,7 +10,7 @@
 #include "network.h"
 #include "nus.h"
 
-#define VERSION "1.1.0"
+#define VERSION "1.1.2"
 
 __attribute__((weak, format(printf, 1, 2)))
 void OSReport(const char* fmt, ...) {}
